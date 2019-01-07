@@ -2,10 +2,6 @@
 # but we start these tests doing 'go get' on github.com/dvyukov/go-fuzz/... because we need
 # the go-fuzz-dep source code to be findable by go-fuzz-build (when it invokes 'go list').
 
-# Verify we get a helpful error if dvyukov/go-fuzz is not yet installed.
-fzgo test -fuzz=FuzzTime sample/pkg1 -fuzztime=10s
-stdout 'some error'
-
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
 
