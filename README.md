@@ -4,8 +4,8 @@
 
 fzgo is a simple initial prototype of integrating [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
 into 'go test', with the heavy lifting being done by `go-fuzz`, `go-fuzz-build`, and the `go` tool. The focus 
-is on step 1 of a tentative list of "Draft goals for a prototype" outlined in this
-[comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#19109](https://golang.org/issue/19109):
+is on step 1 of a tentative list of "Draft goals for a prototype" outlined in [this
+comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#19109](https://golang.org/issue/19109):
 
    _Step 1. Prototype proposed CLI, including interaction with existing 'go test'._
  
