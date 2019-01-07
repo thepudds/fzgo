@@ -1,0 +1,23 @@
+# 'fzgo help' shows fuzzing help
+! fzgo help 
+stdout '^fzgo is a simple prototype'
+stdout '^[ ]*-fuzz regexp'
+stdout '^[ ]*fuzz at most one function matching regexp'
+! stderr .+
+
+# 'fzgo' also shows fuzzing help
+! fzgo 
+stdout '^fzgo is a simple prototype'
+
+# 'fzgo -h' and 'fzgo --help' show fuzzing help
+! fzgo -h
+stdout '^fzgo is a simple prototype'
+! fzgo --help
+stdout '^fzgo is a simple prototype'
+
+# '-h' and '--help' with 'fzgo test -fuzz' show fuzzing help 
+! fzgo test -fuzz . --help
+stdout '^fzgo is a simple prototype'
+! fzgo test -fuzz . -h
+stdout '^fzgo is a simple prototype'
+
