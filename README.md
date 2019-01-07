@@ -9,7 +9,8 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
 
    _Step 1. Prototype proposed CLI, including interaction with existing 'go test'._
  
-`fzgo` supports the `-fuzz` flag and several other related flags proposed in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
+`fzgo` supports the `-fuzz` flag and several other related flags proposed in the March 2017 
+[proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
 such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
 
 * `go-fuzz` requires a two step process. `fzgo` eliminates the separate manual preparation step.
@@ -84,9 +85,13 @@ uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
 
 * New signature for fuzzing function.
 * Allowing fuzzing functions to reside in `*_test.go` files.
-* Anything to do with deeper integration with the compiler for better or more robust instrumentation. This prototype is not focused on that area.
+* Anything to do with deeper integration with the compiler for more robust instrumentation. This
+prototype is not focused on that area.
 * `-fuzzminimize`, `-fuzzinput`, `-coverprofile`, or any of a much larger set of preexisting build flags like `-ldflags`.
-* A longer list of items that are covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008) but not yet mentioned above in this README...
+* Other items covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008), 
+especially in areas outside of the direct user-facing behavior that this prototype focuses on. That said, the majority of 
+user-facing behavior mentioned in the proposal document is either implemented in the prototype or
+mentioned in this list as not implemented.
 * The argument parsing in 'go test' is bespoke, and the argument parsing in `fzgo` is an approximation of that.
 That might be OK for an early prototype. The right thing to do might be to extract 
 [src/cmd/go/internal/test/testflag.go](https://golang.org/src/cmd/go/internal/test/testflag.go), 
