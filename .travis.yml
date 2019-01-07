@@ -13,6 +13,9 @@ matrix:
     - os: windows
       go: "1.11.x"
 
+before_install:
+  - go get -v -u github.com/dvyukov/go-fuzz/...
+  
 script:
   - go test ./... -short
   - go test ./...
