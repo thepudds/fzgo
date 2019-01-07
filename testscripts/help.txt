@@ -1,4 +1,8 @@
 # 'fzgo help' shows fuzzing help
+
+# Exit early if -short was specified.
+[short] skip 'skipping help tests because -short was specified'
+
 ! fzgo help 
 stdout '^fzgo is a simple prototype'
 stdout '^[ ]*-fuzz regexp'
