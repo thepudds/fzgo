@@ -3,9 +3,6 @@
 // See the README at https://github.com/thepudds/fzgo for more details.
 package main
 
-// sample invocation:
-//   fzgo test github.com/thepudds/fzgo/examples/... -fuzz FuzzEmpty -fuzztime 10s
-
 import (
 	"flag"
 	"fmt"
@@ -179,5 +176,6 @@ func usage(fs *flag.FlagSet) func() {
 			argname, usage := flag.UnquoteUsage(f)
 			fmt.Printf("   -%s %s\n       %s\n", f.Name, argname, usage)
 		}
+		fmt.Println()
 	}
 }
