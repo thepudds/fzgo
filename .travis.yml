@@ -14,4 +14,5 @@ matrix:
       go: "1.9.x"
 
 script:
+  - go test ./... -short
   - go test ./...
