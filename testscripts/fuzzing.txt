@@ -7,6 +7,9 @@
 
 # Get go-fuzz (go-fuzz-dep needed by go-fuzz-build).
 go get -v -u github.com/dvyukov/go-fuzz/...
+go install github.com/dvyukov/go-fuzz/...
+exists $WORK/gopath/bin/go-fuzz$exe
+exists $WORK/gopath/bin/go-fuzz-build$exe
 
 # First fuzz test: no fzgo cache, so we build the instrumented binary from scratch.
 # This also creates our corpus directory in the default location.
