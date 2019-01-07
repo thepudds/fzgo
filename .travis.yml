@@ -13,5 +13,6 @@ before_install:
   - go get -v -u github.com/dvyukov/go-fuzz/...
   
 script:
-  - go test -v ./... -short
-  - go test -v ./...
+  - go test -v ./fuzz
+  - go test -short . 
+  - go test . 
