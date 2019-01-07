@@ -86,4 +86,15 @@ uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
 * Allowing fuzzing functions to reside in `*_test.go` files.
 * Anything to do with deeper integration with the compiler for better or more robust instrumentation. This prototype is not focused on that area.
 * `-fuzzminimize`, `-fuzzinput`, `-coverprofile`, or any of a much larger set of preexisting build flags like `-ldflags`.
-* A longer list of items that are covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008) but not yet mentioned above in this README...  
+* A longer list of items that are covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008) but not yet mentioned above in this README...
+* The argument parsing in 'go test' is bespoke, and the argument parsing in `fzgo` is an approximation of that.
+That might be OK for an early prototype. The right thing to do might be to extract 
+[src/cmd/go/internal/test/testflag.go](https://golang.org/src/cmd/go/internal/test/testflag.go), 
+which includes this comment:
+
+```
+// The flag handling part of go test is large and distracting.
+// We can't use the flag package because some of the flags from
+// our command line are for us, and some are for 6.out, and
+// some are for both.
+```
