@@ -26,6 +26,15 @@ fzgo test -fuzz Time .../pkg1 -fuzztime 10s
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: \d+, corpus: '
 
+# Third fuzz test: match two fuzz targets in pkg1.
+# Order of which fuzz function goes first might not be deterministic,
+# so check that one appears during the instrumentation phase and 
+# the other appears later during the fuzzing phase, which should be deterministic.
+fzgo test -fuzz=. .../pkg1 -fuzztime 10s 
+stdout 'fzgo: building instrumented binary for pkg1.FuzzTwo'
+stdout 'fzgo: starting fuzzing pkg1.FuzzTime'
+stderr 'workers: \d+, corpus: '
+
 # Flag -fuzzdir controls where the corpus goes (which could be in a different repo). 
 # This invocation still uses the cache, as do all subsequent invocations in this script.
 fzgo test -fuzz FuzzTime sample/pkg1 -fuzztime=10s -fuzzdir=$WORK/myfuzzdir
@@ -47,7 +56,7 @@ stderr 'workers: 2, corpus: '
 # TODO revisit what goes to stdout vs stderr
 fzgo test -fuzz FuzzTime sample/pkg1 -c
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
-stdout 'fzgo: instrumented binary in'
+stdout 'fzgo: finished instrumenting binaries'
 ! stderr 'workers: \d+, corpus: '
 
 # Flag -v outputs more verbose information when fuzzing.

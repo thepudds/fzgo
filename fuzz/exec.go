@@ -10,6 +10,13 @@ import (
 
 const zipName = "fuzz.zip"
 
+// Target tracks some metadata about each fuzz target.
+type Target struct {
+	Function Func
+	FuzzName string
+	CacheDir string
+}
+
 // Instrument builds the instrumented binary and fuzz.zip if they do not already
 // exist in the fzgo cache. If instead there is a cache hit, Instrument prints to stderr
 // that the cached is being used.
@@ -68,8 +75,8 @@ func Instrument(cacheDir string, function Func) error {
 //     GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
 // workDir contains the corpus, and would typically be something like:
 //     GOPATH/src/github.com/user/proj/testdata/fuzz/fmt.FuzzFmt
-func Start(cacheDir, workDir string, maxDuration time.Duration, parallel int, funcTimeout time.Duration, v bool) error {
-	info("starting fuzzing")
+func Start(target Target, workDir string, maxDuration time.Duration, parallel int, funcTimeout time.Duration, v bool) error {
+	info("starting fuzzing %s", target.FuzzName)
 	info("output in %s", workDir)
 
 	// check if go-fuzz and go-fuzz-build seem to be in our path
@@ -88,7 +95,7 @@ func Start(cacheDir, workDir string, maxDuration time.Duration, parallel int, fu
 	}
 
 	runArgs := []string{
-		fmt.Sprintf("-bin=%s", filepath.Join(cacheDir, zipName)),
+		fmt.Sprintf("-bin=%s", filepath.Join(target.CacheDir, zipName)),
 		fmt.Sprintf("-workdir=%s", workDir),
 		fmt.Sprintf("-procs=%d", parallel),
 		fmt.Sprintf("-timeout=%d", int(funcTimeout.Seconds())), // this is not total run time
@@ -148,7 +155,7 @@ func execCmd(name string, args []string, maxDuration time.Duration) error {
 	return nil
 }
 
-// checkGoFuzz lightly validates that dvyukov/go-fuzz seems to have been properly installed
+// checkGoFuzz lightly validates that dvyukov/go-fuzz seems to have been properly installed.
 func checkGoFuzz() error {
 	for _, cmdName := range []string{"go-fuzz", "go-fuzz-build"} {
 		_, err := exec.LookPath(cmdName)

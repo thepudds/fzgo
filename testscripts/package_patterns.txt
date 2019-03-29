@@ -2,30 +2,36 @@
 # Rather than waiting for fuzzing to start, this is set up to have different
 # package patterns trigger different failure modes to indicate that the patterns 
 # are being interpreted as expected. 
+#
+# Initially, fzgo disallowed multiple fuzz functions to match (per the March 2017 proposal),
+# but as an experiment fzgo now allows multiple fuzz functions to match in order to 
+# support something like 'go test -fuzz=. ./...' when there are multiple fuzz functions
+# across multiple packages. However, these tests were built before that change, 
+# so we use the -debug=nomultifuzz option below to preserve the original behavior.
 
 # Fail when more than one fuzz func matches in two different packages.
-! fzgo test -fuzz=FuzzTwo ./... -fuzztime=10s
+! fzgo test -fuzz=FuzzTwo ./... -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
-! fzgo test -fuzz=FuzzTwo sample/... -fuzztime=10s
+! fzgo test -fuzz=FuzzTwo sample/... -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
 
 # Fail with multiple matches no matter where the package pattern is in our args.
-! fzgo test ./... -fuzz=FuzzTwo -fuzztime=10s
+! fzgo test ./... -fuzz=FuzzTwo -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
-! fzgo test -fuzz=FuzzTwo -fuzztime=10s ./... 
+! fzgo test -fuzz=FuzzTwo -fuzztime=10s ./... -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
 
 # cd to a package directory that has two functions 'FuzzTime' and 'FuzzTwo'.
 cd $WORK/gopath/src/sample/pkg1
 
 # Fail with './...', '.', no pattern, or full path with '-fuzz=Fuzz' because two fuzz funcs match.
-! fzgo test -fuzz=Fuzz -fuzztime=10s
+! fzgo test -fuzz=Fuzz -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
-! fzgo test -fuzz=Fuzz ./... -fuzztime=10s
+! fzgo test -fuzz=Fuzz ./... -fuzztime=10s -debug=nomultifuzz
+stdout '^fzgo: multiple matches not allowed' 
+! fzgo test -fuzz=Fuzz . -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
-! fzgo test -fuzz=Fuzz . -fuzztime=10s
-stdout '^fzgo: multiple matches not allowed'
-! fzgo test -fuzz=Fuzz sample/pkg1 -fuzztime=10s
+! fzgo test -fuzz=Fuzz sample/pkg1 -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
 
 # Functions that don't exist should also be reported as errors with patterns './...', '.', full path, or no pattern.

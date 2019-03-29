@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/thepudds/fzgo/fuzz"
@@ -22,6 +23,7 @@ var (
 	flagParallel int
 	flagTimeout  time.Duration
 	flagVerbose  bool
+	flagDebug    string
 )
 
 var flagDefs = []fuzz.FlagDef{
@@ -32,6 +34,7 @@ var flagDefs = []fuzz.FlagDef{
 	{Name: "timeout", Ptr: &flagTimeout, Description: "fail an individual call to a fuzz function after duration `d` (default 10s, minimum 1s)"},
 	{Name: "c", Ptr: &flagCompile, Description: "compile the instrumented code but do not run it"},
 	{Name: "v", Ptr: &flagVerbose, Description: "verbose: print additional output"},
+	{Name: "debug", Ptr: &flagDebug, Description: "comma separated list of debug options; currently only supports 'nomultifuzz'"},
 }
 
 // constants for status codes for os.Exit()
@@ -98,62 +101,100 @@ func fzgoMain() int {
 	}
 
 	// we now know we have been asked to do fuzzing.
-	function, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc)
+	allowMultiFuzz := flagDebug != "nomultifuzz"
+	functions, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc, allowMultiFuzz)
 	if err != nil {
 		fmt.Println("fzgo:", err)
 		return OtherErr
 	}
 	if flagVerbose {
-		fmt.Printf("fzgo: found function %s.%s\n", function.PkgName, function.FuncName)
+		var names []string
+		for _, function := range functions {
+			names = append(names, function.String())
+		}
+		fmt.Printf("fzgo: found functions %s\n", strings.Join(names, ", "))
 	}
 
-	// generate a hash covering the package, its dependencies, and some items like go-fuzz-build binary and go version
-	h, err := fuzz.Hash(function.PkgPath, function.FuncName, flagVerbose)
-	if err != nil {
-		fmt.Println("fzgo:", err)
-		return OtherErr
-	}
+	// TODO: the logic in main initially was fairly simple. The logic to
+	// support multiple fuzz targets should probably be pushed further out of main,
+	// but wanted to some feedback first.
+	var targets []fuzz.Target
+	for _, function := range functions {
+		// generate a hash covering the package, its dependencies, and some items like go-fuzz-build binary and go version
+		h, err := fuzz.Hash(function.PkgPath, function.FuncName, flagVerbose)
+		if err != nil {
+			fmt.Println("fzgo:", err)
+			return OtherErr
+		}
 
-	fuzzName := fmt.Sprintf("%s.%s", function.PkgName, function.FuncName)
-	cacheDir := fuzz.CacheDir(h, function.PkgName, fuzzName)
+		fuzzName := fmt.Sprintf("%s.%s", function.PkgName, function.FuncName)
+		cacheDir := fuzz.CacheDir(h, function.PkgName, fuzzName)
+		targets = append(targets, fuzz.Target{Function: function, FuzzName: fuzzName, CacheDir: cacheDir})
 
-	// build our instrumented code, or find it already built in the fzgo cache
-	err = fuzz.Instrument(cacheDir, function)
-	if err != nil {
-		fmt.Println("fzgo:", err)
-		return OtherErr
+		// build our instrumented code, or find it already built in the fzgo cache
+		err = fuzz.Instrument(cacheDir, function)
+		if err != nil {
+			fmt.Println("fzgo:", err)
+			return OtherErr
+		}
 	}
 
 	if flagCompile {
-		fmt.Println("fzgo: instrumented binary in", cacheDir)
+		fmt.Println("fzgo: finished instrumenting binaries")
 		return Success
 	}
 
-	// finalize our arguments, then start fuzzing.
-	var workDir string
-	if flagFuzzDir == "" {
-		workDir = filepath.Join(function.PkgDir, "testdata", "fuzz", fuzzName)
-	} else {
-		workDir = filepath.Join(flagFuzzDir, fuzzName)
-	}
-	parallel := flagParallel
-	if parallel == 0 {
-		parallel = runtime.GOMAXPROCS(0)
-	}
-	funcTimeout := flagTimeout
-	if funcTimeout == 0 {
-		funcTimeout = 10 * time.Second
-	} else if funcTimeout < 1*time.Second {
-		fmt.Printf("fzgo: fuzz function timeout value %s in -timeout flag is less than minimum of 1 second\n", funcTimeout)
-		return ArgErr
-	}
+	// run forever if flagFuzzTime was not set (that is, has default value of 0).
+	loopForever := flagFuzzTime == 0
+	timeQuantum := 5 * time.Second
+	for {
+		for _, target := range targets {
+			// pull our last bit of info out of our arguments, then start fuzzing.
+			var workDir string
+			if flagFuzzDir == "" {
+				workDir = filepath.Join(target.Function.PkgDir, "testdata", "fuzz", target.FuzzName)
+			} else {
+				workDir = filepath.Join(flagFuzzDir, target.FuzzName)
+			}
+			parallel := flagParallel
+			if parallel == 0 {
+				parallel = runtime.GOMAXPROCS(0)
+			}
+			funcTimeout := flagTimeout
+			if funcTimeout == 0 {
+				funcTimeout = 10 * time.Second
+			} else if funcTimeout < 1*time.Second {
+				fmt.Printf("fzgo: fuzz function timeout value %s in -timeout flag is less than minimum of 1 second\n", funcTimeout)
+				return ArgErr
+			}
 
-	err = fuzz.Start(cacheDir, workDir, flagFuzzTime, parallel, funcTimeout, flagVerbose)
-	if err != nil {
-		fmt.Println("fzgo:", err)
-		return OtherErr
-	}
+			var fuzzDuration time.Duration
+			if !loopForever {
+				fuzzDuration = flagFuzzTime
+			} else {
+				if len(targets) > 1 {
+					fuzzDuration = timeQuantum
+				} else {
+					fuzzDuration = 0 // unlimited
+				}
+			}
 
+			err = fuzz.Start(target, workDir, fuzzDuration, parallel, funcTimeout, flagVerbose)
+			if err != nil {
+				fmt.Println("fzgo:", err)
+				return OtherErr
+			}
+		}
+		// run forever if flagFuzzTime was not set,
+		// but otherwise break after fuzzing each target once for flagFuzzTime above.
+		if !loopForever {
+			break
+		}
+		timeQuantum *= 2
+		if timeQuantum > 5*time.Minute {
+			timeQuantum = 5 * time.Minute
+		}
+	}
 	return Success
 }
 
