@@ -102,7 +102,6 @@ func fzgoMain() int {
 
 	// we now know we have been asked to do fuzzing.
 	allowMultiFuzz := flagDebug != "nomultifuzz"
-	fmt.Println("allowMultiFuzz", allowMultiFuzz)
 	functions, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc, allowMultiFuzz)
 	if err != nil {
 		fmt.Println("fzgo:", err)
