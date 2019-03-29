@@ -72,13 +72,17 @@ and nicely extracted at [rogpeppe/go-internal/testscript](https://github.com/rog
 
 #### Changes from the proposal document
 
-Two minor changes between the current prototype vs. the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008):
+Three changes between the current fzgo prototype vs. the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008):
 
-1. Some of the commentators at [#19109](https://golang.org/issue/19109) suggested `-fuzztime duration` as a 
+1. Initially, fzgo disallowed multiple fuzz functions to match (per the March 2017 proposal),
+but as an experiment fzgo now allows multiple fuzz functions to match in order to 
+support something like 'go test -fuzz=. ./...' when there are multiple fuzz functions
+across multiple packages. Fuzzing happens in round-robin manner if multiple fuzz functions match.
+2. Some of the commentators at [#19109](https://golang.org/issue/19109) suggested `-fuzztime duration` as a 
 way of controlling when to stop fuzzing. The proposal document does not include `-fuzztime` and `go-fuzz` 
 does not support it, but it seems useful in general and `-fuzztime` is in the prototype (and it proved 
 useful while testing the prototype).
-2. The proposal document suggested `GOPATH/pkg/GOOS_GOARCH_fuzz/` for a cache, but the prototype instead
+3. The proposal document suggested `GOPATH/pkg/GOOS_GOARCH_fuzz/` for a cache, but the prototype instead
 uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
 
 #### Pieces of proposal document not implemented in this prototype
