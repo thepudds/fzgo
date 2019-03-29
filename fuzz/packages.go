@@ -20,13 +20,19 @@ type Func struct {
 	PkgDir   string // local on-disk directory
 }
 
+func (f Func) String() string {
+	return fmt.Sprintf("%v.%v", f.PkgName, f.FuncName)
+}
+
 // FindFunc searches for a requested function to fuzz.
-// The combination of pkgPattern and funcPattern must match exactly one function.
-func FindFunc(pkgPattern, funcPattern string) (Func, error) {
+// The March 2017 proposal document https://github.com/golang/go/issues/19109#issuecomment-285456008
+// suggests not allowing something like 'go test -fuzz=. ./...' to match multiple fuzz functions.
+// As an experiment, allowMultiFuzz flag allows that.
+func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, error) {
 	report := func(err error) error {
 		return fmt.Errorf("error while loading packages for pattern %v: %v", pkgPattern, err)
 	}
-	var result Func
+	var result []Func
 
 	// load packages based on our package pattern
 	// build tags example: https://groups.google.com/d/msg/golang-tools/Adwr7jEyDmw/wQZ5qi8ZGAAJ
@@ -36,15 +42,14 @@ func FindFunc(pkgPattern, funcPattern string) (Func, error) {
 	}
 	pkgs, err := packages.Load(cfg, pkgPattern)
 	if err != nil {
-		return result, report(err)
+		return nil, report(err)
 	}
 	if packages.PrintErrors(pkgs) > 0 {
-		return result, fmt.Errorf("package load error for package pattern %v", pkgPattern)
+		return nil, fmt.Errorf("package load error for package pattern %v", pkgPattern)
 	}
 
 	// look for a func that starts with 'Fuzz' and matches our regexp.
 	// loop over the packages we found and loop over the Defs for each package.
-	found := false
 	for _, pkg := range pkgs {
 		for id, obj := range pkg.TypesInfo.Defs {
 			// check if we have a func
@@ -57,30 +62,30 @@ func FindFunc(pkgPattern, funcPattern string) (Func, error) {
 				}
 				matchedPattern, err := regexp.MatchString(funcPattern, id.Name)
 				if err != nil {
-					return result, report(err)
+					return nil, report(err)
 				}
 				if matchedPattern {
 					// found a match.
 					// check if we already found a match in a prior iteration our of loops.
-					if found {
-						return Func{}, fmt.Errorf("multiple matches not allowed. multiple matches for pattern %v and func %v: %v.%v and %v.%v",
-							pkgPattern, funcPattern, pkg.PkgPath, id.Name, result.PkgPath, result.FuncName)
+					if len(result) > 0 && !allowMultiFuzz {
+						return nil, fmt.Errorf("multiple matches not allowed. multiple matches for pattern %v and func %v: %v.%v and %v.%v",
+							pkgPattern, funcPattern, pkg.PkgPath, id.Name, result[0].PkgPath, result[0].FuncName)
 					}
 					pkgDir, err := goListDir(pkg.PkgPath)
 					if err != nil {
-						return result, report(err)
+						return nil, report(err)
 					}
-					result = Func{FuncName: id.Name, PkgName: pkg.Name, PkgPath: pkg.PkgPath, PkgDir: pkgDir}
+					result = append(result,
+						Func{FuncName: id.Name, PkgName: pkg.Name, PkgPath: pkg.PkgPath, PkgDir: pkgDir})
 
-					// record we found a match, but keep looping to see if we find another match
-					found = true
+					// keep looping to see if we find another match
 				}
 			}
 		}
 	}
 	// done looking
-	if !found {
-		return result, fmt.Errorf("failed to find fuzz function for pattern %v and func %v", pkgPattern, funcPattern)
+	if len(result) == 0 {
+		return nil, fmt.Errorf("failed to find fuzz function for pattern %v and func %v", pkgPattern, funcPattern)
 	}
 	return result, nil
 }
