@@ -56,26 +56,32 @@ func TestParseArgs(t *testing.T) {
 
 func TestFindFlag(t *testing.T) {
 	tests := []struct {
-		name   string
-		args   []string
-		want   string
-		wantOK bool
+		name      string
+		args      []string
+		wantName  string
+		wantValue string
+		wantOK    bool
 	}{
-		{"match", []string{"-foo", "bar", "-fuzz=fuzzfunc"}, "fuzz", true},
-		{"no value", []string{"-fuzz", "-foo", "bar"}, "fuzz", true},
-		{"no value last", []string{"-foo", "bar", "-fuzz"}, "fuzz", true},
-		{"no match", []string{"-foo", "bar", "-fuzznot=fuzzfunc"}, "", false},
-		{"do not match --", []string{"--", "fuzz"}, "", false},
-		{"do not match ---fuzz", []string{"---fuzz", "fuzzFunc"}, "", false},
-		{"do not match non-flags", []string{"fuzz", "fuzzFunc"}, "", false},
-		{"do not match after -args", []string{"-foo", "bar", "-args", "-fuzz=fuzzfunc"}, "", false},
+		{"match with =", []string{"-foo", "bar", "-fuzz=fuzzfunc"}, "fuzz", "fuzzfunc", true},
+		{"match without =", []string{"-foo", "bar", "-fuzz", "fuzzfunc"}, "fuzz", "fuzzfunc", true},
+		{"no value last", []string{"-foo", "bar", "-fuzz"}, "fuzz", "", true},
+		{"no value with =", []string{"-foo", "bar", "-fuzz="}, "fuzz", "", true},
+		{"false match on value", []string{"-fuzz", "-foo", "bar"}, "fuzz", "-foo", true},
+		{"no match", []string{"-foo", "bar", "-fuzznot=fuzzfunc"}, "", "", false},
+		{"do not match --", []string{"--", "fuzz"}, "", "", false},
+		{"do not match ---fuzz", []string{"---fuzz", "fuzzFunc"}, "", "", false},
+		{"do not match non-flags", []string{"fuzz", "fuzzFunc"}, "", "", false},
+		{"do not match after -args", []string{"-foo", "bar", "-args", "-fuzz=fuzzfunc"}, "", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			names := []string{"fuzz", "test.fuzz"}
-			got, gotOK := FindFlag(tt.args, names)
-			if got != tt.want {
-				t.Errorf("FindFlag() got = %v, want %v", got, tt.want)
+			gotName, gotValue, gotOK := FindFlag(tt.args, names)
+			if gotName != tt.wantName {
+				t.Errorf("FindFlag() gotName = %v, want %v", gotName, tt.wantName)
+			}
+			if gotValue != tt.wantValue {
+				t.Errorf("FindFlag() gotValue = %v, want %v", gotValue, tt.wantValue)
 			}
 			if gotOK != tt.wantOK {
 				t.Errorf("FindFlag() got1 = %v, want %v", gotOK, tt.wantOK)

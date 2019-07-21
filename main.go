@@ -1,6 +1,14 @@
 // fzgo is a simple prototype of integrating dvyukov/go-fuzz into 'go test'.
 //
 // See the README at https://github.com/thepudds/fzgo for more details.
+//
+// There are three main directories used:
+// 1. cacheDir is the location for the instrumented binary, and would typically be something like:
+//      GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
+// 2. fuzzDir is the directory supplied via the -fuzzdir argument, and contains the workDir.
+// 3. workDir is passed to go-fuzz as the -workdir argument.
+//      if -fuzzdir is specified,  workDir is fuzzdir/<fuzzname>
+//      if -fuzzdir is not specified, workDir is pkgpath/testdata/fuzz/<fuzzname>
 package main
 
 import (
@@ -64,7 +72,7 @@ func fzgoMain() int {
 		fs.Usage()
 		return ArgErr
 	}
-	if _, ok := fuzz.FindFlag(os.Args[1:2], []string{"h", "help"}); ok {
+	if _, _, ok := fuzz.FindFlag(os.Args[1:2], []string{"h", "help"}); ok {
 		fs.Usage()
 		return ArgErr
 	}
@@ -92,8 +100,15 @@ func fzgoMain() int {
 	}
 
 	if flagFuzzFunc == "" {
-		// 'fzgo test', but no '-fuzz'. Pass through to 'go' command
-		err := fuzz.ExecGo(os.Args[1:])
+		// 'fzgo test', but no '-fuzz'. We have not been asked to generate new fuzz-based inputs.
+		// instead, we do two things:
+		// 1. we deterministically validate our corpus (if any),
+		status := verifyCorpus(os.Args)
+		if status != Success {
+			return status
+		}
+		// 2. pass our arguments through to the normal 'go' command, which will run normal 'go test'.
+		err = fuzz.ExecGo(os.Args[1:])
 		if err != nil {
 			return OtherErr
 		}
@@ -105,6 +120,9 @@ func fzgoMain() int {
 	functions, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc, allowMultiFuzz)
 	if err != nil {
 		fmt.Println("fzgo:", err)
+		return OtherErr
+	} else if len(functions) == 0 {
+		fmt.Printf("fzgo: failed to find fuzz function for pattern %v and func %v\n", pkgPattern, flagFuzzFunc)
 		return OtherErr
 	}
 	if flagVerbose {
@@ -127,6 +145,7 @@ func fzgoMain() int {
 			return OtherErr
 		}
 
+		// TODO: move this elsewhere. Currently calculating this > 1 time in main.go.
 		fuzzName := fmt.Sprintf("%s.%s", function.PkgName, function.FuncName)
 		cacheDir := fuzz.CacheDir(h, function.PkgName, fuzzName)
 		targets = append(targets, fuzz.Target{Function: function, FuzzName: fuzzName, CacheDir: cacheDir})
@@ -150,6 +169,7 @@ func fzgoMain() int {
 	for {
 		for _, target := range targets {
 			// pull our last bit of info out of our arguments, then start fuzzing.
+			// TODO: move this elsewhere. Currently calculating this > 1 time in main.go.
 			var workDir string
 			if flagFuzzDir == "" {
 				workDir = filepath.Join(target.Function.PkgDir, "testdata", "fuzz", target.FuzzName)
@@ -191,11 +211,63 @@ func fzgoMain() int {
 			break
 		}
 		timeQuantum *= 2
-		if timeQuantum > 5*time.Minute {
-			timeQuantum = 5 * time.Minute
+		if timeQuantum > 10*time.Minute {
+			timeQuantum = 10 * time.Minute
 		}
 	}
 	return Success
+}
+
+// verifyCorpus validates our corpus by executing any fuzz functions in our package pattern
+// against any files in the corresponding corpus. This is an automatic form of regression test.
+// args is os.Args
+func verifyCorpus(args []string) int {
+	// we do this by first searching for any fuzz func ("." regexp) in our package pattern.
+	// TODO: move this elsewhere. Taken from fuzz.ParseArgs.
+	testPkgPatterns, nonPkgArgs, err := fuzz.FindPkgs(args[2:])
+	if err != nil {
+		fmt.Println("fzgo:", err)
+		return OtherErr
+	}
+	var testPkgPattern string
+	if len(testPkgPatterns) > 1 {
+		fmt.Printf("fzgo: more than one package pattern not allowed: %q", testPkgPatterns)
+		return ArgErr
+	} else if len(testPkgPatterns) == 0 {
+		testPkgPattern = "."
+	} else {
+		testPkgPattern = testPkgPatterns[0]
+	}
+
+	functions, err := fuzz.FindFunc(testPkgPattern, ".", true)
+	if err != nil {
+		fmt.Println("fzgo:", err)
+		return OtherErr
+	}
+	// TODO: should we get -v? E.g., something like:
+	// _, verbose := fuzz.FindTestFlag(os.Args[2:], []string{"v"})
+	status := Success
+	for _, function := range functions {
+		// TODO: fuzzName and workDir computation is >1 place in main.go
+		fuzzName := fmt.Sprintf("%s.%s", function.PkgName, function.FuncName)
+		var workDir string
+		if flagFuzzDir == "" {
+			workDir = filepath.Join(function.PkgDir, "testdata", "fuzz", fuzzName)
+		} else {
+			workDir = filepath.Join(flagFuzzDir, fuzzName)
+		}
+		err := fuzz.VerifyCorpus(function, workDir, nonPkgArgs)
+		if err == fuzz.ErrGoTestFailed {
+			// 'go test' itself should have printed an informative error,
+			// so here we just set a non-zero status code and continue.
+			status = OtherErr
+		} else if err != nil {
+			fmt.Println("fzgo:", err)
+			return OtherErr
+		}
+	}
+
+	return status
 }
 
 func usage(fs *flag.FlagSet) func() {

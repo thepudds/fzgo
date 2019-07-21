@@ -19,6 +19,7 @@ such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapp
 * The `-fuzzdir` flag allows the corpus to be stored elsewhere (e.g., a separate corpus repo).
 * The fuzzing function name must begin with `Fuzz` and still uses the `func Fuzz(data []byte) int` form used by `go-fuzz`. 
 * `fuzz` and `gofuzz` build tags are allowed but not required.
+* The corpus is automatically used as deterministic input to unit tests when running a normal test (e.g., `fzgo test <pkg>`).
 
 ## Usage
 ```
@@ -26,7 +27,7 @@ Usage: fzgo test [build/test flags] [packages] [build/test flags]
 
 Examples:
 
-   fzgo test                           # test the current package
+   fzgo test                           # normal 'go test' of the current package, plus run any corpus as unit tests
    fzgo test -fuzz .                   # fuzz the current package with a function starting with 'Fuzz'
    fzgo test -fuzz FuzzFoo             # fuzz the current package with a function matching 'FuzzFoo'
    fzgo test ./... -fuzz FuzzFoo       # fuzz a package in ./... with a function matching 'FuzzFoo'
@@ -84,6 +85,7 @@ does not support it, but it seems useful in general and `-fuzztime` is in the pr
 useful while testing the prototype).
 3. The proposal document suggested `GOPATH/pkg/GOOS_GOARCH_fuzz/` for a cache, but the prototype instead
 uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
+4. The proposal document suggested `-fuzzinput` as a way of specifying a file from the corpus to execute as a unit test. `fzgo` instead uses the normal `-run` argument to `go test`. For example, `fzgo test -run=TestCorpus/4fa128cf066f2a31 some/pkg` runs the any file in the corpus matching `4fa128cf066f2a31`.
 
 #### Pieces of proposal document not implemented in this prototype
 
@@ -91,7 +93,7 @@ uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
 * Allowing fuzzing functions to reside in `*_test.go` files.
 * Anything to do with deeper integration with the compiler for more robust instrumentation. This
 prototype is not focused on that area.
-* `-fuzzminimize`, `-fuzzinput`, `-coverprofile`, or any of a much larger set of preexisting build flags like `-ldflags`.
+* `-fuzzminimize`, `-coverprofile`, or any of a much larger set of preexisting build flags like `-ldflags`.
 * Other items covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008), 
 especially in areas outside of the direct user-facing behavior that this prototype focuses on. That said, the majority of 
 user-facing behavior mentioned in the proposal document is either implemented in the prototype or
