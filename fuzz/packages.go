@@ -25,6 +25,7 @@ func (f Func) String() string {
 }
 
 // FindFunc searches for a requested function to fuzz.
+// It is not an error to not find any -- in that case, it returns a nil list and nil error.
 // The March 2017 proposal document https://github.com/golang/go/issues/19109#issuecomment-285456008
 // suggests not allowing something like 'go test -fuzz=. ./...' to match multiple fuzz functions.
 // As an experiment, allowMultiFuzz flag allows that.
@@ -84,9 +85,6 @@ func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, erro
 		}
 	}
 	// done looking
-	if len(result) == 0 {
-		return nil, fmt.Errorf("failed to find fuzz function for pattern %v and func %v", pkgPattern, funcPattern)
-	}
 	return result, nil
 }
 
