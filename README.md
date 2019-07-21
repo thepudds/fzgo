@@ -27,7 +27,7 @@ Usage: fzgo test [build/test flags] [packages] [build/test flags]
 
 Examples:
 
-   fzgo test                           # test the current package
+   fzgo test                           # normal 'go test' of the current package, plus run any corpus as unit tests
    fzgo test -fuzz .                   # fuzz the current package with a function starting with 'Fuzz'
    fzgo test -fuzz FuzzFoo             # fuzz the current package with a function matching 'FuzzFoo'
    fzgo test ./... -fuzz FuzzFoo       # fuzz a package in ./... with a function matching 'FuzzFoo'
