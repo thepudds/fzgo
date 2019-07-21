@@ -97,7 +97,7 @@ func ParseArgs(args []string, fs *flag.FlagSet) (string, error) {
 
 	// first, check if we are asked to do anything fuzzing-related by
 	// checking if -fuzz or -test.fuzz is present.
-	_, ok := FindTestFlag(args, []string{"fuzz"})
+	_, _, ok := FindTestFlag(args, []string{"fuzz"})
 	if !ok {
 		// nothing else to do for any fuzz-related args parsing.
 		return "", nil
@@ -105,13 +105,13 @@ func ParseArgs(args []string, fs *flag.FlagSet) (string, error) {
 
 	// second, to make the 'fzgo' prototype a bit friendlier,
 	// give more specific errors for 3 categories of illegal flags.
-	if illegalFlag, ok := FindTestFlag(args, IncompatibleTestFlags); ok {
+	if illegalFlag, _, ok := FindTestFlag(args, IncompatibleTestFlags); ok {
 		return "", fmt.Errorf("test flag -%s is currently proposed to be incompatible with 'go test -fuzz'", illegalFlag)
 	}
-	if illegalFlag, ok := FindTestFlag(args, UnimplementedTestFlags); ok {
+	if illegalFlag, _, ok := FindTestFlag(args, UnimplementedTestFlags); ok {
 		return "", fmt.Errorf("test flag -%s is not yet implemented by fzgo prototype", illegalFlag)
 	}
-	if illegalFlag, ok := FindFlag(args, UnimplementedBuildFlags); ok {
+	if illegalFlag, _, ok := FindFlag(args, UnimplementedBuildFlags); ok {
 		return "", fmt.Errorf("build flag -%s is not yet implemented by fzgo prototype", illegalFlag)
 	}
 
@@ -152,7 +152,11 @@ func ParseArgs(args []string, fs *flag.FlagSet) (string, error) {
 // of the arguments (and for example does not differentiate between a bool flag vs. a duration flag).
 // A client should do a final valiation pass via fuzz.ParseArgs(), which calls the standard flag.FlagSet.Parse()
 // and which will reject malformed arguments according to the normal rules of the flag package.
-func FindFlag(args []string, names []string) (string, bool) {
+// Returns the found name, and a possible value that is either the value of name=value, or
+// the next arg if there is no '=' immediately after name. It is up to the caller to know
+// if the possible value should be interpreted as the actual value (because, for example,
+// FindFlag has no knowledge of bool flag vs. other flags, etc.).
+func FindFlag(args []string, names []string) (string, string, bool) {
 	nameSet := map[string]bool{}
 	for _, name := range names {
 		nameSet[name] = true
@@ -164,30 +168,34 @@ func FindFlag(args []string, names []string) (string, bool) {
 			if flag == "args" {
 				// for 'go test', go tool specific args are defined to stop at '-args' or '--args',
 				// so stop looking
-				return "", false
+				return "", "", false
 			}
-			foundName := ""
+			foundName, foundValue := "", ""
 			if strings.Contains(flag, "=") {
 				// found arg '-foo=bar' or '--foo=bar'
 				splits := strings.SplitN(flag, "=", 2)
 				foundName = splits[0]
+				foundValue = splits[1]
 			} else {
 				foundName = flag
+				if i+1 < len(args) {
+					foundValue = args[i+1]
+				}
 			}
 
 			if nameSet[foundName] {
-				return foundName, true
+				return foundName, foundValue, true
 			}
 
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // FindTestFlag looks for the first matching arg that looks like a flag in the list of flag names,
 // and returns the first flag name found. If passed flag name 'foo', it looks for both '-foo' and '-test.foo'.
 // See FindFlag for more details.
-func FindTestFlag(args []string, names []string) (string, bool) {
+func FindTestFlag(args []string, names []string) (string, string, bool) {
 	var finalNames []string
 	for _, n := range names {
 		finalNames = append(finalNames, n)
