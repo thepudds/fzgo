@@ -14,60 +14,85 @@ import (
 // cacheDir is the location for the instrumented binary, and would typically be something like:
 //     GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
 func Instrument(function Func, verbose bool) (Target, error) {
-	report := func(err error) error {
-		return fmt.Errorf("instrument %s.%s error: %v", function.PkgName, function.FuncName, err)
+	report := func(err error) (Target, error) {
+		return Target{}, fmt.Errorf("instrument %s.%s error: %v", function.PkgName, function.FuncName, err)
 	}
 
 	// check if go-fuzz and go-fuzz-build seem to be in our path
 	err := checkGoFuzz()
 	if err != nil {
-		return Target{}, report(err)
+		return report(err)
 	}
 
 	if function.FuncName == "" || function.PkgDir == "" || function.PkgPath == "" {
-		return Target{}, report(fmt.Errorf("unexpected fuzz function: %#v", function))
+		return report(fmt.Errorf("unexpected fuzz function: %#v", function))
 	}
 
-	// create our initial target struct
-	target := Target{OrigFunction: function}
+	plain, err := IsPlainSig(function.TypesFunc)
+	if err != nil {
+		return report(err)
+	}
 
-	// TODO: shadow for now
+	var target Target
+	if !plain {
+		target, err = CreateWrapperFunc(function)
+		if err != nil {
+			return report(err)
+		}
+	} else {
+		// create our initial target struct
+		target = Target{UserFunc: function}
+	}
+
 	// Determine where our cacheDir is.
 	// This includes calculating a hash covering the package, its dependencies, and some other items.
 	cacheDir, err := target.cacheDir(verbose)
 	if err != nil {
-		return Target{}, report(fmt.Errorf("getting cache dir failed: %v", err))
+		return report(fmt.Errorf("getting cache dir failed: %v", err))
 	}
 
 	// set up our cache directory if needed
 	err = os.MkdirAll(cacheDir, os.ModePerm)
 	if err != nil {
-		return Target{}, report(fmt.Errorf("creating cache dir failed: %v", err))
+		return report(fmt.Errorf("creating cache dir failed: %v", err))
 	}
 
 	// check if our instrumented zip already exists in our cache (in which case we trust it).
 	finalZipPath, err := target.zipPath(verbose)
 	if err != nil {
-		return Target{}, report(fmt.Errorf("zip path failed: %v", err))
+		return report(fmt.Errorf("zip path failed: %v", err))
 	}
 	if _, err = os.Stat(finalZipPath); os.IsNotExist(err) {
+		// TODO: resume here ###########################################################################
+		// clean up the functions running around. switch to target.
+		// also, delete the temp dir. probably with a defer just after target returns succesfully
 		info("building instrumented binary for %v.%v", function.PkgName, function.FuncName)
 		outFile := filepath.Join(cacheDir, "fuzz.zip.partial")
-		args := []string{
-			"-func=" + function.FuncName,
-			"-o=" + outFile,
-			buildTagsArg,
-			function.PkgPath,
+		var args []string
+		if !target.hasWrapper {
+			args = []string{
+				"-func=" + target.UserFunc.FuncName,
+				"-o=" + outFile,
+				buildTagsArg,
+				target.UserFunc.PkgPath,
+			}
+		} else {
+			args = []string{
+				"-func=" + target.wrapperFunc.FuncName,
+				"-o=" + outFile,
+				buildTagsArg,
+				target.wrapperFunc.PkgPath,
+			}
 		}
 
-		err = execCmd("go-fuzz-build", args, 0)
+		err = execCmd("go-fuzz-build", args, target.wrapperEnv, 0)
 		if err != nil {
-			return Target{}, report(fmt.Errorf("go-fuzz-build failed with args %q: %v", args, err))
+			return report(fmt.Errorf("go-fuzz-build failed with args %q: %v", args, err))
 		}
 
 		err = os.Rename(outFile, finalZipPath)
 		if err != nil {
-			return Target{}, report(err)
+			return report(err)
 		}
 	} else {
 		info("using cached instrumented binary for %v.%v", function.PkgName, function.FuncName)
@@ -115,7 +140,7 @@ func Start(target Target, workDir string, maxDuration time.Duration, parallel in
 		fmt.Sprintf("-timeout=%d", int(funcTimeout.Seconds())), // this is not total run time
 		fmt.Sprintf("-v=%d", verboseLevel),
 	}
-	err = execCmd("go-fuzz", runArgs, maxDuration)
+	err = execCmd("go-fuzz", runArgs, nil, maxDuration)
 	if err != nil {
 		return report(err)
 	}
@@ -127,10 +152,13 @@ func Start(target Target, workDir string, maxDuration time.Duration, parallel in
 // as a fuzz target, including determining where to cache the fuzz.zip
 // and what the target's fuzzName should be.
 type Target struct {
-	OrigFunction Func
+	UserFunc      Func   // the user's original function
+	savedCacheDir string // the cacheDir relies on a content hash, so remember the answer
 
-	// private
-	savedCacheDir string
+	hasWrapper     bool
+	wrapperFunc    Func     // synthesized wrapper function, only used if user's func has rich signatures
+	wrapperEnv     []string // env with GOPATH set up to include the temporary
+	wrapperTempDir string
 }
 
 // FuzzName returns the '<pkg>.<OrigFuzzFunc>' string.
@@ -138,7 +166,7 @@ type Target struct {
 // in messages, as well it is part of the path when creating
 // the corpus location under testdata.
 func (t *Target) FuzzName() string {
-	return t.OrigFunction.FuzzName()
+	return t.UserFunc.FuzzName()
 }
 
 func (t *Target) zipPath(verbose bool) (string, error) {
@@ -154,11 +182,20 @@ func (t *Target) cacheDir(verbose bool) (string, error) {
 		// generate a hash covering the package, its dependencies, and some items like go-fuzz-build binary and go version
 		// TODO: pass verbose flag around?
 		// TODO: update packagedir for trimPrefix if / when target is introduced (want to trim TEMP dir)
-		h, err := Hash(t.OrigFunction.PkgPath, t.OrigFunction.FuncName, t.OrigFunction.PkgDir, verbose)
+		var err error
+		var h string
+		if !t.hasWrapper {
+			// use everything directly from the original user function
+			h, err = Hash(t.UserFunc.PkgPath, t.UserFunc.FuncName, t.UserFunc.PkgDir, nil, verbose)
+		} else {
+			// we have a wrapper function, so target that for our hash.
+			h, err = Hash(t.wrapperFunc.PkgPath, t.wrapperFunc.FuncName, t.wrapperFunc.PkgDir, t.wrapperEnv, verbose)
+		}
 		if err != nil {
 			return "", err
 		}
-		t.savedCacheDir = CacheDir(h, t.OrigFunction.PkgName, t.FuzzName())
+		// the user facing location on disk is the friendly name (that is, from the original user function)
+		t.savedCacheDir = CacheDir(h, t.UserFunc.PkgName, t.FuzzName())
 	}
 
 	return t.savedCacheDir, nil
@@ -168,22 +205,30 @@ func (t *Target) cacheDir(verbose bool) (string, error) {
 // pass-through mode, where an invocation like 'fzgo env GOPATH'
 // gets passed to the 'go' tool as 'go env GOPATH'. args typically would be
 // os.Args[1:]
-func ExecGo(args []string) error {
+func ExecGo(args []string, env []string) error {
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+
 	_, err := exec.LookPath("go")
 	if err != nil {
 		return fmt.Errorf("failed to find \"go\" command in path. error: %v", err)
 	}
-	return execCmd("go", args, 0)
+	return execCmd("go", args, env, 0)
 }
 
 // A maxDuration of 0 means no max time is enforced.
-func execCmd(name string, args []string, maxDuration time.Duration) error {
+// TODO: added env. make public? put in fzgo/fuzz package?
+func execCmd(name string, args []string, env []string, maxDuration time.Duration) error {
 	report := func(err error) error { return fmt.Errorf("exec %v error: %v", name, err) }
 
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	if len(env) > 0 {
+		cmd.Env = env
+	}
 
 	if maxDuration == 0 {
 		// invoke cmd and let it run until it returns

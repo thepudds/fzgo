@@ -20,6 +20,5 @@ before_install:
   
 script:
   - go test -v ./fuzz
-  - go test ./richsig
   - go test -short . 
   - go test ./...

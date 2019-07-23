@@ -3,6 +3,7 @@ package fuzz
 import (
 	"fmt"
 	"go/types"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -12,12 +13,13 @@ import (
 
 const buildTagsArg = "-tags=gofuzz fuzz"
 
-// Func represents a function that will be fuzzed.
+// Func represents a discovered function that will be fuzzed.
 type Func struct {
-	FuncName string
-	PkgName  string // package name (should be the same as the package's package statement)
-	PkgPath  string // import path
-	PkgDir   string // local on-disk directory
+	FuncName  string
+	PkgName   string      // package name (should be the same as the package's package statement)
+	PkgPath   string      // import path
+	PkgDir    string      // local on-disk directory
+	TypesFunc *types.Func // auxiliary information about a Func from the go/types package
 }
 
 // FuzzName returns the '<pkg>.<OrigFuzzFunc>' string.
@@ -37,7 +39,9 @@ func (f *Func) String() string {
 // The March 2017 proposal document https://github.com/golang/go/issues/19109#issuecomment-285456008
 // suggests not allowing something like 'go test -fuzz=. ./...' to match multiple fuzz functions.
 // As an experiment, allowMultiFuzz flag allows that.
-func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, error) {
+// FindFunc searches for a requested function to visit.
+// TODO: from richsig
+func FindFunc(pkgPattern, funcPattern string, env []string, allowMultiFuzz bool) ([]Func, error) {
 	report := func(err error) error {
 		return fmt.Errorf("error while loading packages for pattern %v: %v", pkgPattern, err)
 	}
@@ -48,6 +52,9 @@ func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, erro
 	cfg := &packages.Config{
 		Mode:       packages.LoadSyntax,
 		BuildFlags: []string{buildTagsArg},
+	}
+	if len(env) > 0 {
+		cfg.Env = env
 	}
 	pkgs, err := packages.Load(cfg, pkgPattern)
 	if err != nil {
@@ -62,13 +69,14 @@ func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, erro
 	for _, pkg := range pkgs {
 		for id, obj := range pkg.TypesInfo.Defs {
 			// check if we have a func
-			_, ok := obj.(*types.Func)
+			f, ok := obj.(*types.Func)
 			if ok {
-				// fmt.Printf("found function: id.Name [%v] value [%v] re [%v]\n", id.Name, obj, funcRE)
+
 				// check if it starts with "Fuzz" and matches our fuzz function regular expression
 				if !strings.HasPrefix(id.Name, "Fuzz") {
 					continue
 				}
+
 				matchedPattern, err := regexp.MatchString(funcPattern, id.Name)
 				if err != nil {
 					return nil, report(err)
@@ -80,12 +88,16 @@ func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, erro
 						return nil, fmt.Errorf("multiple matches not allowed. multiple matches for pattern %v and func %v: %v.%v and %v.%v",
 							pkgPattern, funcPattern, pkg.PkgPath, id.Name, result[0].PkgPath, result[0].FuncName)
 					}
-					pkgDir, err := goListDir(pkg.PkgPath)
+					pkgDir, err := goListDir(pkg.PkgPath, env)
 					if err != nil {
 						return nil, report(err)
 					}
-					result = append(result,
-						Func{FuncName: id.Name, PkgName: pkg.Name, PkgPath: pkg.PkgPath, PkgDir: pkgDir})
+
+					function := Func{
+						FuncName: id.Name, PkgName: pkg.Name, PkgPath: pkg.PkgPath, PkgDir: pkgDir,
+						TypesFunc: f,
+					}
+					result = append(result, function)
 
 					// keep looping to see if we find another match
 				}
@@ -93,12 +105,22 @@ func FindFunc(pkgPattern, funcPattern string, allowMultiFuzz bool) ([]Func, erro
 		}
 	}
 	// done looking
+	if len(result) == 0 {
+		return nil, fmt.Errorf("failed to find fuzz function for pattern %v and func %v", pkgPattern, funcPattern)
+	}
 	return result, nil
 }
 
 // goListDir returns the dir for a package import path
-func goListDir(pkgPath string) (string, error) {
-	out, err := exec.Command("go", "list", "-f", "{{.Dir}}", buildTagsArg, pkgPath).Output()
+func goListDir(pkgPath string, env []string) (string, error) {
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+
+	cmd := exec.Command("go", "list", "-f", "{{.Dir}}", buildTagsArg, pkgPath)
+	cmd.Env = env
+
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to find directory of %v: %v", pkgPath, err)
 	}

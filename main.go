@@ -79,7 +79,7 @@ func fzgoMain() int {
 
 	if os.Args[1] != "test" {
 		// pass through to 'go' command
-		err := fuzz.ExecGo(os.Args[1:])
+		err := fuzz.ExecGo(os.Args[1:], nil)
 		if err != nil {
 			// ExecGo prints error if 'go' tool is not in path.
 			// Other than that, we currently rely on the 'go' tool to print any errors itself.
@@ -108,7 +108,7 @@ func fzgoMain() int {
 			return status
 		}
 		// 2. pass our arguments through to the normal 'go' command, which will run normal 'go test'.
-		err = fuzz.ExecGo(os.Args[1:])
+		err = fuzz.ExecGo(os.Args[1:], nil)
 		if err != nil {
 			return OtherErr
 		}
@@ -131,7 +131,7 @@ func fzgoMain() int {
 	}
 
 	// look for the functions we have been asked to fuzz.
-	functions, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc, allowMultiFuzz)
+	functions, err := fuzz.FindFunc(pkgPattern, flagFuzzFunc, nil, allowMultiFuzz)
 	if err != nil {
 		fmt.Println("fzgo:", err)
 		return OtherErr
@@ -172,7 +172,7 @@ func fzgoMain() int {
 			// TODO: Currently calculating this > 1 time in main.go.
 			var workDir string
 			if flagFuzzDir == "" {
-				workDir = filepath.Join(target.OrigFunction.PkgDir, "testdata", "fuzz", target.FuzzName())
+				workDir = filepath.Join(target.UserFunc.PkgDir, "testdata", "fuzz", target.FuzzName())
 			} else {
 				workDir = filepath.Join(flagFuzzDir, target.FuzzName())
 			}
@@ -195,6 +195,7 @@ func fzgoMain() int {
 				fmt.Println("fzgo:", err)
 				return OtherErr
 			}
+			fmt.Println() // blank separator line at end of one target's fuzz run.
 		}
 		// run forever if flagFuzzTime was not set,
 		// but otherwise break after fuzzing each target once for flagFuzzTime above.
@@ -205,6 +206,7 @@ func fzgoMain() int {
 		if timeQuantum > 10*time.Minute {
 			timeQuantum = 10 * time.Minute
 		}
+
 	}
 	return Success
 }
@@ -230,7 +232,7 @@ func verifyCorpus(args []string) int {
 		testPkgPattern = testPkgPatterns[0]
 	}
 
-	functions, err := fuzz.FindFunc(testPkgPattern, ".", true)
+	functions, err := fuzz.FindFunc(testPkgPattern, ".", nil, true)
 	if err != nil {
 		fmt.Println("fzgo:", err)
 		return OtherErr

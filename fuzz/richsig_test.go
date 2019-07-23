@@ -1,4 +1,4 @@
-package main
+package fuzz
 
 import (
 	"bytes"
@@ -23,12 +23,12 @@ func TestWrapperGeneration(t *testing.T) {
 	}{
 		{
 			name:    "only basic types: string, []byte, bool",
-			args:    args{funcPattern: "FuzzWithBasicTypes", pkgPattern: "./examples"},
+			args:    args{funcPattern: "FuzzWithBasicTypes", pkgPattern: "github.com/thepudds/fzgo/examples/richsignatures"},
 			wantErr: false,
 			wantOutput: `
 package richsigwrapper
 
-import "github.com/thepudds/fzgo/richsig/examples"
+import "github.com/thepudds/fzgo/examples/richsignatures"
 
 import gofuzz "github.com/google/gofuzz"
 
@@ -71,12 +71,12 @@ func fuzzOne (fuzzer *gofuzz.Fuzzer) {
 		},
 		{
 			name:    "type from stdlib: regexp",
-			args:    args{funcPattern: "FuzzWithStdlibType", pkgPattern: "./examples"},
+			args:    args{funcPattern: "FuzzWithStdlibType", pkgPattern: "github.com/thepudds/fzgo/examples/richsignatures"},
 			wantErr: false,
 			wantOutput: `
 package richsigwrapper
 
-import "github.com/thepudds/fzgo/richsig/examples"
+import "github.com/thepudds/fzgo/examples/richsignatures"
 
 import gofuzz "github.com/google/gofuzz"
 
@@ -122,12 +122,12 @@ func fuzzOne (fuzzer *gofuzz.Fuzzer) {
 		},
 		{
 			name:    "type from outside stdlib: github.com/fzgo/fuzz.Func",
-			args:    args{funcPattern: "FuzzWithFzgoFunc", pkgPattern: "./examples"},
+			args:    args{funcPattern: "FuzzWithFzgoFunc", pkgPattern: "github.com/thepudds/fzgo/examples/richsignatures"},
 			wantErr: false,
 			wantOutput: `
 package richsigwrapper
 
-import "github.com/thepudds/fzgo/richsig/examples"
+import "github.com/thepudds/fzgo/examples/richsignatures"
 
 import gofuzz "github.com/google/gofuzz"
 
@@ -166,7 +166,7 @@ func fuzzOne (fuzzer *gofuzz.Fuzzer) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var b bytes.Buffer
-			functions, err := FindFunc(tt.args.pkgPattern, tt.args.funcPattern, tt.args.allowMultiFuzz)
+			functions, err := FindFunc(tt.args.pkgPattern, tt.args.funcPattern, nil, tt.args.allowMultiFuzz)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FindFunc() error = %v, wantErr %v", err, tt.wantErr)
 				return

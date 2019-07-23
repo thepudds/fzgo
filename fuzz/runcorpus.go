@@ -66,7 +66,7 @@ func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
 		".",
 	}
 	runArgs = append(runArgs, nonPkgArgs...)
-	err = ExecGo(runArgs)
+	err = ExecGo(runArgs, nil)
 	if err != nil {
 		// we will guess for now at least that this was due to a test failure.
 		// the 'go' command should have already printed the details on the failure.
