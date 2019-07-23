@@ -43,7 +43,10 @@ func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
 	if err != nil {
 		return err
 	}
-	os.Chdir(tempDir)
+	err = os.Chdir(tempDir)
+	if err != nil {
+		return err
+	}
 	defer func() { os.Chdir(oldWd) }()
 
 	// write out temporary corpus_test.go file
