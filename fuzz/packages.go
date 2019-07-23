@@ -20,8 +20,16 @@ type Func struct {
 	PkgDir   string // local on-disk directory
 }
 
-func (f Func) String() string {
-	return fmt.Sprintf("%v.%v", f.PkgName, f.FuncName)
+// FuzzName returns the '<pkg>.<OrigFuzzFunc>' string.
+// For example, it might be 'fmt.FuzzFmt'. This is used
+// in messages, as well it is part of the path when creating
+// the corpus location under testdata.
+func (f *Func) FuzzName() string {
+	return fmt.Sprintf("%s.%s", f.PkgName, f.FuncName)
+}
+
+func (f *Func) String() string {
+	return f.FuzzName()
 }
 
 // FindFunc searches for a requested function to fuzz.
