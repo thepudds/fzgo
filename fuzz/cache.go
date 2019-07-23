@@ -3,6 +3,8 @@ package fuzz
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"go/build"
 	"io"
@@ -13,8 +15,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-
-	"github.com/rogpeppe/go-internal/dirhash"
 )
 
 // CacheDir returns <GOPATH>/pkg/fuzz/<GOOS_GOARCH>/<hash>/<package_fuzzfunc>/
@@ -23,27 +23,35 @@ func CacheDir(hash, pkgName, fuzzName string) string {
 	if gp == "" {
 		gp = build.Default.GOPATH
 	}
+	s := strings.Split(gp, string(os.PathListSeparator))
+	if len(s) > 1 {
+		gp = s[0]
+	}
 	return filepath.Join(gp, "pkg", "fuzz", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH),
 		hash, fuzzName)
 }
 
 // Hash returns a string representing the hash of the files in a package, its dependencies,
 // as well as the fuzz func name, the version of go and the go-fuzz-build binary.
-func Hash(pkgPath, funcName string, verbose bool) (string, error) {
+func Hash(pkgPath, funcName, trimPrefix string, verbose bool) (string, error) {
+	report := func(err error) (string, error) {
+		return "", fmt.Errorf("fzgo cache hash: %v", err)
+	}
 	h := sha256.New()
 
 	// hash the contents of our package and dependencies
 	dirs, err := goListDeps(pkgPath)
 	if err != nil {
-		return "", err
+		return report(err)
 	}
 	sort.Strings(dirs)
 	for _, dir := range dirs {
-		hd, err := hashDir(dir)
+		hd, err := hashDir(dir, trimPrefix)
 		if err != nil {
-			return "", err
+			return report(err)
 		}
-		fmt.Fprintf(h, "%s  %s\n", hd, dir)
+
+		fmt.Fprintf(h, "%s  %s\n", hd, strings.TrimPrefix(dir, trimPrefix))
 		if verbose {
 			fmt.Printf("%s  %s\n", hd, dir)
 		}
@@ -54,21 +62,21 @@ func Hash(pkgPath, funcName string, verbose bool) (string, error) {
 	err = checkGoFuzz()
 	if err != nil {
 		// err here suggests running 'go get' for go-fuzz
-		return "", err
+		return report(err)
 	}
 	path, err := exec.LookPath("go-fuzz-build")
 	if err != nil {
-		return "", err
+		return report(err)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return report(err)
 	}
 	defer f.Close()
 	hf := sha256.New()
 	_, err = io.Copy(hf, f)
 	if err != nil {
-		return "", err
+		return report(err)
 	}
 	s := hf.Sum(nil)
 	fmt.Fprintf(h, "%x  %s\n", s, "go-fuzz-build")
@@ -86,7 +94,7 @@ func Hash(pkgPath, funcName string, verbose bool) (string, error) {
 }
 
 // hashDir hashes files without descending into subdirectories.
-func hashDir(dir string) (string, error) {
+func hashDir(dir, trimPrefix string) (string, error) {
 
 	var absFiles []string
 	files, err := ioutil.ReadDir(dir)
@@ -106,10 +114,34 @@ func hashDir(dir string) (string, error) {
 
 	}
 
-	osOpen := func(name string) (io.ReadCloser, error) {
-		return os.Open(name)
+	return hashFiles(absFiles, trimPrefix)
+}
+
+// Adapted from dirhash.Hash1. The largest difference is
+// the filenames within a trimPrefix directory won't use
+// the trimPrefix string as part of the hash.
+// The file contents are still hashed.
+func hashFiles(files []string, trimPrefix string) (string, error) {
+	h := sha256.New()
+	files = append([]string(nil), files...)
+	sort.Strings(files)
+	for _, file := range files {
+		if strings.Contains(file, "\n") {
+			return "", errors.New("filenames with newlines are not supported")
+		}
+		r, err := os.Open(file)
+		if err != nil {
+			return "", err
+		}
+		hf := sha256.New()
+		_, err = io.Copy(hf, r)
+		r.Close()
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(h, "%x  %s\n", hf.Sum(nil), strings.TrimPrefix(file, trimPrefix))
 	}
-	return dirhash.Hash1(absFiles, osOpen)
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
 // goListDeps returns a []string of dirs for all dependencies of pkg
