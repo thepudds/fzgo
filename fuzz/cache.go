@@ -33,14 +33,14 @@ func CacheDir(hash, pkgName, fuzzName string) string {
 
 // Hash returns a string representing the hash of the files in a package, its dependencies,
 // as well as the fuzz func name, the version of go and the go-fuzz-build binary.
-func Hash(pkgPath, funcName, trimPrefix string, verbose bool) (string, error) {
+func Hash(pkgPath, funcName, trimPrefix string, env []string, verbose bool) (string, error) {
 	report := func(err error) (string, error) {
 		return "", fmt.Errorf("fzgo cache hash: %v", err)
 	}
 	h := sha256.New()
 
 	// hash the contents of our package and dependencies
-	dirs, err := goListDeps(pkgPath)
+	dirs, err := goListDeps(pkgPath, env)
 	if err != nil {
 		return report(err)
 	}
@@ -145,8 +145,15 @@ func hashFiles(files []string, trimPrefix string) (string, error) {
 }
 
 // goListDeps returns a []string of dirs for all dependencies of pkg
-func goListDeps(pkg string) ([]string, error) {
-	out, err := exec.Command("go", "list", "-deps", "-f", "{{.Dir}}", buildTagsArg, pkg).Output()
+func goListDeps(pkg string, env []string) ([]string, error) {
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+
+	cmd := exec.Command("go", "list", "-deps", "-f", "{{.Dir}}", buildTagsArg, pkg)
+	cmd.Env = env
+
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
