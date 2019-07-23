@@ -8,21 +8,12 @@ import (
 	"time"
 )
 
-const zipName = "fuzz.zip"
-
-// Target tracks some metadata about each fuzz target.
-type Target struct {
-	Function Func
-	FuzzName string
-	CacheDir string
-}
-
 // Instrument builds the instrumented binary and fuzz.zip if they do not already
 // exist in the fzgo cache. If instead there is a cache hit, Instrument prints to stderr
 // that the cached is being used.
 // cacheDir is the location for the instrumented binary, and would typically be something like:
 //     GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
-func Instrument(cacheDir string, function Func) error {
+func Instrument(function Func, verbose bool) (Target, error) {
 	report := func(err error) error {
 		return fmt.Errorf("instrument %s.%s error: %v", function.PkgName, function.FuncName, err)
 	}
@@ -30,22 +21,36 @@ func Instrument(cacheDir string, function Func) error {
 	// check if go-fuzz and go-fuzz-build seem to be in our path
 	err := checkGoFuzz()
 	if err != nil {
-		return err
+		return Target{}, report(err)
 	}
 
 	if function.FuncName == "" || function.PkgDir == "" || function.PkgPath == "" {
-		return report(fmt.Errorf("unexpected fuzz function: %#v", function))
+		return Target{}, report(fmt.Errorf("unexpected fuzz function: %#v", function))
+	}
+
+	// create our initial target struct
+	target := Target{OrigFunction: function}
+
+	// TODO: shadow for now
+	// Determine where our cacheDir is.
+	// This includes calculating a hash covering the package, its dependencies, and some other items.
+	cacheDir, err := target.cacheDir(verbose)
+	if err != nil {
+		return Target{}, report(fmt.Errorf("getting cache dir failed: %v", err))
 	}
 
 	// set up our cache directory if needed
 	err = os.MkdirAll(cacheDir, os.ModePerm)
 	if err != nil {
-		return report(fmt.Errorf("cache dir failed: %v", err))
+		return Target{}, report(fmt.Errorf("creating cache dir failed: %v", err))
 	}
 
 	// check if our instrumented zip already exists in our cache (in which case we trust it).
-	finalFile := filepath.Join(cacheDir, zipName)
-	if _, err = os.Stat(finalFile); os.IsNotExist(err) {
+	finalZipPath, err := target.zipPath(verbose)
+	if err != nil {
+		return Target{}, report(fmt.Errorf("zip path failed: %v", err))
+	}
+	if _, err = os.Stat(finalZipPath); os.IsNotExist(err) {
 		info("building instrumented binary for %v.%v", function.PkgName, function.FuncName)
 		outFile := filepath.Join(cacheDir, "fuzz.zip.partial")
 		args := []string{
@@ -57,17 +62,17 @@ func Instrument(cacheDir string, function Func) error {
 
 		err = execCmd("go-fuzz-build", args, 0)
 		if err != nil {
-			return report(fmt.Errorf("go-fuzz-build failed with args %q: %v", args, err))
+			return Target{}, report(fmt.Errorf("go-fuzz-build failed with args %q: %v", args, err))
 		}
 
-		err = os.Rename(outFile, finalFile)
+		err = os.Rename(outFile, finalZipPath)
 		if err != nil {
-			return report(err)
+			return Target{}, report(err)
 		}
 	} else {
 		info("using cached instrumented binary for %v.%v", function.PkgName, function.FuncName)
 	}
-	return nil
+	return target, nil
 }
 
 // Start begins fuzzing by invoking 'go-fuzz'.
@@ -76,13 +81,17 @@ func Instrument(cacheDir string, function Func) error {
 // workDir contains the corpus, and would typically be something like:
 //     GOPATH/src/github.com/user/proj/testdata/fuzz/fmt.FuzzFmt
 func Start(target Target, workDir string, maxDuration time.Duration, parallel int, funcTimeout time.Duration, v bool) error {
-	info("starting fuzzing %s", target.FuzzName)
+	report := func(err error) error {
+		return fmt.Errorf("start fuzzing %s error: %v", target.FuzzName(), err)
+	}
+
+	info("starting fuzzing %s", target.FuzzName())
 	info("output in %s", workDir)
 
 	// check if go-fuzz and go-fuzz-build seem to be in our path
 	err := checkGoFuzz()
 	if err != nil {
-		return err
+		return report(err)
 	}
 
 	// prepare our args
@@ -94,14 +103,65 @@ func Start(target Target, workDir string, maxDuration time.Duration, parallel in
 		verboseLevel = 1
 	}
 
+	zipPath, err := target.zipPath(v)
+	if err != nil {
+		return report(fmt.Errorf("zip path failed: %v", err))
+	}
+
 	runArgs := []string{
-		fmt.Sprintf("-bin=%s", filepath.Join(target.CacheDir, zipName)),
+		fmt.Sprintf("-bin=%s", zipPath),
 		fmt.Sprintf("-workdir=%s", workDir),
 		fmt.Sprintf("-procs=%d", parallel),
 		fmt.Sprintf("-timeout=%d", int(funcTimeout.Seconds())), // this is not total run time
 		fmt.Sprintf("-v=%d", verboseLevel),
 	}
-	return execCmd("go-fuzz", runArgs, maxDuration)
+	err = execCmd("go-fuzz", runArgs, maxDuration)
+	if err != nil {
+		return report(err)
+	}
+	return nil
+}
+
+// Target tracks some metadata about each fuzz target, and is responsible
+// for tracking a fuzz.Func found via go/packages and making it useful
+// as a fuzz target, including determining where to cache the fuzz.zip
+// and what the target's fuzzName should be.
+type Target struct {
+	OrigFunction Func
+
+	// private
+	savedCacheDir string
+}
+
+// FuzzName returns the '<pkg>.<OrigFuzzFunc>' string.
+// For example, it might be 'fmt.FuzzFmt'. This is used
+// in messages, as well it is part of the path when creating
+// the corpus location under testdata.
+func (t *Target) FuzzName() string {
+	return t.OrigFunction.FuzzName()
+}
+
+func (t *Target) zipPath(verbose bool) (string, error) {
+	cacheDir, err := t.cacheDir(verbose)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cacheDir, "fuzz.zip"), nil
+}
+
+func (t *Target) cacheDir(verbose bool) (string, error) {
+	if t.savedCacheDir == "" {
+		// generate a hash covering the package, its dependencies, and some items like go-fuzz-build binary and go version
+		// TODO: pass verbose flag around?
+		// TODO: update packagedir for trimPrefix if / when target is introduced (want to trim TEMP dir)
+		h, err := Hash(t.OrigFunction.PkgPath, t.OrigFunction.FuncName, t.OrigFunction.PkgDir, verbose)
+		if err != nil {
+			return "", err
+		}
+		t.savedCacheDir = CacheDir(h, t.OrigFunction.PkgName, t.FuzzName())
+	}
+
+	return t.savedCacheDir, nil
 }
 
 // ExecGo invokes the go command. The intended use case is fzgo operating in
