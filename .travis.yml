@@ -17,8 +17,9 @@ matrix:
 
 before_install:
   - go get -v -u github.com/dvyukov/go-fuzz/...
-  
+  - go get -v -u golang.org/x/tools/cmd/goimports
+
 script:
   - go test -v ./fuzz
-  - go test -short . 
-  - go test ./...
+  - go test -short ./... 
+  - go test .
