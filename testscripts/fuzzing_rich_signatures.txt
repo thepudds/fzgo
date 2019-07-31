@@ -15,6 +15,9 @@ go get -v -u github.com/thepudds/fzgo/...
 go get -v -u github.com/google/gofuzz
 go get -v -u golang.org/x/tools/cmd/goimports
 
+# Verify goimports binary seems to exist in our test environment
+exists $WORK/gopath/bin/goimports$exe
+
 # Get go-fuzz (go-fuzz-dep needed by go-fuzz-build).
 go get -v -u github.com/dvyukov/go-fuzz/...
 go install github.com/dvyukov/go-fuzz/...
@@ -25,29 +28,45 @@ exists $WORK/gopath/bin/go-fuzz-build$exe
 
 # First fuzz test: no fzgo cache, so we build the instrumented binary from scratch.
 # This also creates our corpus directory in the default location.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=10s
+fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s
 stdout 'building instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzWithBasicTypes/corpus
 
 # Second fuzz test: now we use the fzgo cache.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=10s
+fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s
 stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 
 # Flag -fuzzdir controls where the corpus goes (which could be in a different repo). 
 # This invocation still uses the cache, as do all subsequent invocations in this script.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=10s -fuzzdir=$WORK/myfuzzdir
+fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s -fuzzdir=$WORK/myfuzzdir
 stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 exists $WORK/myfuzzdir/pkgname.FuzzWithBasicTypes/corpus
 
+# Uncomment this next line if you don't want to rely on goimports
+# [!exec:goimports] stop 'skipping remaining step that currently relies on goimports being in the path'
+
+# Make sure goimports can be executed. 
+! exec goimports -h
+stderr 'goimports'
+
 # Check rich signature from stdlib (uses regexp)
-# TODO: make work with travis
-# fzgo test -fuzz=FuzzWithStdlibType sample/richsignatures -fuzztime=10s
-# stdout 'building instrumented binary for pkgname.FuzzWithStdlibType'
-# stderr 'workers: \d+, corpus: '
-# exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzWithStdlibType/corpus
+# This currently relies on goimports being in the path.
+fzgo test -fuzz=FuzzWithStdlibType sample/richsignatures -fuzztime=5s
+stdout 'building instrumented binary for pkgname.FuzzWithStdlibType'
+stderr 'workers: \d+, corpus: '
+exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzWithStdlibType/corpus
+
+stop 'skipping test that relies on literal injection working'
+
+# Check we can get a crasher relatively quickly by finding a 64 bit int via a rich signature, which
+# should imply go-fuzz literal injection is working end-to-end with rich signatures.
+fzgo test -fuzz=FuzzHardToGuessNumber sample/richsignatures -fuzztime=20s
+stdout 'building instrumented binary for pkgname.FuzzHardToGuessNumber'
+stderr 'workers: \d+, corpus: .* crashers: [^0]'
+exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzHardToGuessNumber/corpus
 
 # TODO: currently this is cloned from examples dir in fzgo repo
 
@@ -98,4 +117,13 @@ type ExampleType int
 // FuzzWithTargetType shows a type defined in the same file as the fuzz function.
 func FuzzWithTargetType(e ExampleType) {
 
+}
+
+// FuzzHardToGuessNumber is a sanity check that go-fuzz literal injection seems to be working end-to-end.
+// This is typically found within a few seconds when properly hooked up.
+func FuzzHardToGuessNumber(guessMe int64) {
+
+	if guessMe == 0x123456789 {
+		panic("bingo")
+	}
 }
