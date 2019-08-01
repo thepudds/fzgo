@@ -35,6 +35,7 @@ func Instrument(function Func, verbose bool) (Target, error) {
 
 	var target Target
 	if !plain {
+		info("detected rich signature for %v.%v", function.PkgName, function.FuncName)
 		target, err = CreateWrapperFunc(function)
 		if err != nil {
 			return report(err)
