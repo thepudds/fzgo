@@ -30,27 +30,20 @@ package richsigwrapper
 
 import "github.com/thepudds/fzgo/examples/richsignatures"
 
-import gofuzz "github.com/google/gofuzz"
+import "github.com/thepudds/fzgo/randparam"
 
 // FuzzRichSigWrapper is an automatically generated wrapper that is
 // compatible with dvyukov/go-fuzz.
 func FuzzRichSigWrapper(data []byte) int {
-	// fuzzer := fuzz.New()
-	var seed int64
-	if len(data) == 0 {
-		seed = 0
-	} else {
-		seed = int64(data[0])
-	}
-	fuzzer := gofuzz.NewWithSeed(seed)
+	fuzzer := randparam.NewFuzzer(data)
 	fuzzOne(fuzzer)
 	return 0
 }
 
-// fuzzOne is an automatically generated function that takes
-// uses google/gofuzz fuzzer to automatically fuzz the arguments for a
+// fuzzOne is an automatically generated function that
+// uses fzgo/randparam.Fuzzer to automatically fuzz the arguments for a
 // user-supplied function.
-func fuzzOne (fuzzer *gofuzz.Fuzzer) {
+func fuzzOne (fuzzer *randparam.Fuzzer) {
 
 	// Create random args for each parameter from the signature.
 	// fuzzer.Fuzz recursively fills all of obj's fields with something random.
@@ -78,27 +71,20 @@ package richsigwrapper
 
 import "github.com/thepudds/fzgo/examples/richsignatures"
 
-import gofuzz "github.com/google/gofuzz"
+import "github.com/thepudds/fzgo/randparam"
 
 // FuzzRichSigWrapper is an automatically generated wrapper that is
 // compatible with dvyukov/go-fuzz.
 func FuzzRichSigWrapper(data []byte) int {
-	// fuzzer := fuzz.New()
-	var seed int64
-	if len(data) == 0 {
-		seed = 0
-	} else {
-		seed = int64(data[0])
-	}
-	fuzzer := gofuzz.NewWithSeed(seed)
+	fuzzer := randparam.NewFuzzer(data)
 	fuzzOne(fuzzer)
 	return 0
 }
 
-// fuzzOne is an automatically generated function that takes
-// uses google/gofuzz fuzzer to automatically fuzz the arguments for a
+// fuzzOne is an automatically generated function that
+// uses fzgo/randparam.Fuzzer to automatically fuzz the arguments for a
 // user-supplied function.
-func fuzzOne (fuzzer *gofuzz.Fuzzer) {
+func fuzzOne (fuzzer *randparam.Fuzzer) {
 
 	// Create random args for each parameter from the signature.
 	// fuzzer.Fuzz recursively fills all of obj's fields with something random.
@@ -129,27 +115,20 @@ package richsigwrapper
 
 import "github.com/thepudds/fzgo/examples/richsignatures"
 
-import gofuzz "github.com/google/gofuzz"
+import "github.com/thepudds/fzgo/randparam"
 
 // FuzzRichSigWrapper is an automatically generated wrapper that is
 // compatible with dvyukov/go-fuzz.
 func FuzzRichSigWrapper(data []byte) int {
-	// fuzzer := fuzz.New()
-	var seed int64
-	if len(data) == 0 {
-		seed = 0
-	} else {
-		seed = int64(data[0])
-	}
-	fuzzer := gofuzz.NewWithSeed(seed)
+	fuzzer := randparam.NewFuzzer(data)
 	fuzzOne(fuzzer)
 	return 0
 }
 
-// fuzzOne is an automatically generated function that takes
-// uses google/gofuzz fuzzer to automatically fuzz the arguments for a
+// fuzzOne is an automatically generated function that
+// uses fzgo/randparam.Fuzzer to automatically fuzz the arguments for a
 // user-supplied function.
-func fuzzOne (fuzzer *gofuzz.Fuzzer) {
+func fuzzOne (fuzzer *randparam.Fuzzer) {
 
 	// Create random args for each parameter from the signature.
 	// fuzzer.Fuzz recursively fills all of obj's fields with something random.
