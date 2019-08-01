@@ -1,12 +1,5 @@
 package fuzz
 
-// Package richsig enables fuzzing of rich function signatures with fzgo and dvyukov/go-fuzz beyond
-// just func([]byte) int.
-//
-// For example, without manual work, can fuzz functions like:
-//
-//   func FuzzFunc(re string, input []byte, posix bool) (bool, error)
-
 import (
 	"bytes"
 	"fmt"
@@ -14,39 +7,30 @@ import (
 	"go/types"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-// WORKS!
-// this works:
-//   .\fzgo test -fuzz=. ./examples/richsignatures
-// TODO: older ones:
+// richsig enables fuzzing of rich function signatures with fzgo and dvyukov/go-fuzz beyond
+// just func([]byte) int.
+//
+// For example, without manual work, can fuzz functions like:
+//   func FuzzFunc(re string, input []byte, posix bool) (bool, error)
+
+// some examples that work:
+//   ./fzgo test -fuzz=. ./examples/richsignatures
+//
 // this uses all basic types:
-//   go run richsig.go ./examples FuzzWithBasicTypes
+//   ./fzgo test ./examples/... -fuzz=FuzzWithBasicTypes
 // this uses a non-stdlib type:
-//   go run richsig.go ./examples FuzzWithFzgoFunc
+//   ./fzgo test ./examples/... -fuzz=FuzzWithFzgoFunc
 // this uses goimports right now to set up imports:
-//   go run richsig.go ./examples FuzzWithStdlibType
-
-// TODO: list
-//   - currently separate binary; needs to be integrated back to fzgo
-//   - corpus goes to wrong spot. pass arg?
-
-// TODO: temp: make this a separate binary while bootstrapping this.
-func main() {
-	functions, err := FindFunc(os.Args[1], os.Args[2], nil, true)
-	for _, function := range functions {
-		createWrapper(os.Stdout, function)
-		CreateWrapperFunc(function)
-	}
-	if err != nil {
-		log.Fatalf("richsig: fatal error: %v", err)
-	}
-}
+//   ./fzgo test ./examples/... -fuzz=FuzzWithStdlibType
+//
+// check literal injection (works):
+//   ./fzgo test ./examples/... -fuzz=FuzzHardToGuessNumber
 
 // IsPlainSig reports whether a signature is a classic, plain 'func([]bytes) int'
 // go-fuzz signature.
@@ -81,6 +65,7 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 	if err != nil {
 		return report(fmt.Errorf("create staging temp dir: %v", err))
 	}
+	// TODO: need to delete temp directory in non-error case.
 	defer func() {
 		// conditionally clean up. (this is a bit of an experiment to use named return err here).
 		if err != nil {
@@ -120,13 +105,11 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 		return report(fmt.Errorf("failed to create temporary richsigwrapper.go: %v", err))
 	}
 
-	// TODO: duration?
-
 	// If Env contains duplicate environment keys for GOPATH, only the last
 	// value in the slice for each duplicate key is used.
 	env := append(os.Environ(), "GOPATH="+gp)
 
-	// TODO: stop invoking goimports? maybe this is a hack, or maybe this is a convient way to get what we want for now...
+	// TODO: stop invoking goimports? maybe this is a temp hack, or maybe this is a convient way to get what we want for now...
 	if _, err := exec.LookPath("goimports"); err == nil {
 		err = execCmd("goimports", []string{"-w", "richsigwrapper.go"}, env, 0)
 		if err != nil {
@@ -134,18 +117,11 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 		}
 	}
 
-	// TODO: #########################################################
-	// TODO: #########################################################
-	// TODO: #########################################################
-	// TODO: #########################################################
-	// TODO: #########################################################
-	// TODO: #########################################################
+	// TODO: ##################################################################################
+	// TODO: ###########  resume finishing up here, also fuzz.Instrument, fuzz.Start ##########
+	// TODO: ##################################################################################
 
-	// TODO: temp
-	// err = execCmd("fzgo", []string{"test", "-fuzz=FuzzRichSigWrapper", "-fuzztime=10s"}, env, 0)
-	// if err != nil {
-	// 	return report(fmt.Errorf("failed invoking fzgo for rich signature: %v", err))
-	// }
+	// TODO: need to delete temp directory in non-error case.
 
 	// Note: pkg patterns like 'fzgo/...' and 'fzgo/richsigwrapper' don't seem to work, but '.' does.
 	// (We cd'ed above to the working directory. Maybe a go/packages bug, not liking >1 GOPATH entry?)
@@ -163,21 +139,6 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 	}
 
 	return target, nil
-
-	/* manual
-	wrapperFunc := Func{
-		FuncName:  function.FuncName, // this is a friendly name, and here still the original user func name
-		PkgName:   "richsigwrapper",
-		PkgPath:   "fzgo/richsigwrapper", // this is within our our second GOPATH in the temp directory
-		PkgDir:    wrapperDir,
-		TypesFunc: nil, // not set yet
-	}
-	*/
-	// TODO: delete. this was while bootstrapping
-	// err = execCmd("fzgo", []string{"test", "-fuzz=FuzzRichSigWrapper", "-fuzztime=10s"}, env, 0)
-	// if err != nil {
-	// 	return report(fmt.Errorf("failed invoking fzgo for rich signature: %v", err))
-	// }
 }
 
 func createWrapper(w io.Writer, function Func) error {
@@ -193,27 +154,20 @@ func createWrapper(w io.Writer, function Func) error {
 	fmt.Fprintf(w, "\npackage richsigwrapper\n")
 	fmt.Fprintf(w, "\nimport \"%s\"\n", function.PkgPath)
 	fmt.Fprintf(w, `
-import gofuzz "github.com/google/gofuzz"
+import "github.com/thepudds/fzgo/randparam"
 
 // FuzzRichSigWrapper is an automatically generated wrapper that is
 // compatible with dvyukov/go-fuzz.
 func FuzzRichSigWrapper(data []byte) int {
-	// fuzzer := fuzz.New()
-	var seed int64
-	if len(data) == 0 {
-		seed = 0
-	} else {
-		seed = int64(data[0])
-	}
-	fuzzer := gofuzz.NewWithSeed(seed)
+	fuzzer := randparam.NewFuzzer(data)
 	fuzzOne(fuzzer)
 	return 0
 }
 
-// fuzzOne is an automatically generated function that takes
-// uses google/gofuzz fuzzer to automatically fuzz the arguments for a
+// fuzzOne is an automatically generated function that
+// uses fzgo/randparam.Fuzzer to automatically fuzz the arguments for a
 // user-supplied function.
-func fuzzOne (fuzzer *gofuzz.Fuzzer) {
+func fuzzOne (fuzzer *randparam.Fuzzer) {
 
 	// Create random args for each parameter from the signature.
 	// fuzzer.Fuzz recursively fills all of obj's fields with something random.
