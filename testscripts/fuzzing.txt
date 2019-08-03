@@ -1,6 +1,12 @@
 # Test fuzzing. We could assume go-fuzz and go-fuzz-build binaries are in the path,
 # but we start these tests doing 'go get' on github.com/dvyukov/go-fuzz/... because we need
 # the go-fuzz-dep source code to be findable by go-fuzz-build (when it invokes 'go list').
+# TODO: $WORK/gopath/bin is actually not in the path; installing a binary here does not mean we can use it.
+# We might need to adjust the PATH in our testscript setup to include $WORK/gopath/bin,
+# or provide a FZGO_PATH_SEPARATOR variable to enable us to do the same from within a testscript, or some other soln.
+# For now, we rely on the binaries being in the system path. 
+# Reminder: the tests here can be run by themselves from the fzgo directory via:
+#    go test -run=TestScripts/fuzzing$ .
 
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
@@ -15,14 +21,18 @@ exists $WORK/gopath/bin/go-fuzz-build$exe
 
 # First fuzz test: no fzgo cache, so we build the instrumented binary from scratch.
 # This also creates our corpus directory in the default location.
-fzgo test -fuzz=FuzzTime sample/pkg1 -fuzztime=10s
+fzgo test -fuzz=FuzzTime example.com/pkg1 -fuzztime=5s
 stdout 'building instrumented binary for pkg1.FuzzTime'
 stderr 'workers: \d+, corpus: '
-exists $WORK/gopath/src/sample/pkg1/testdata/fuzz/pkg1.FuzzTime/corpus
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/pkg1/FuzzTime/corpus
+# Verify a known input was copied from <pkg-path>/testdata/...
+# to our user-supplied destination corpus location.
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/pkg1/FuzzTime/corpus/valid-input
 
-# Second fuzz test: now we use the fzgo cache.
+# Second fuzz test: now we use the fzgo instrumentation cache.
 # Even though -fuzz regexp and package pattern specified differently, they match the same package and func.
-fzgo test -fuzz Time .../pkg1 -fuzztime 10s 
+# We also specify -parallel=1 to reduce CPU usage for our remaining tests.
+fzgo test -fuzz=Time .../pkg1 -parallel=1 -fuzztime 5s 
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: \d+, corpus: '
 
@@ -30,44 +40,63 @@ stderr 'workers: \d+, corpus: '
 # Order of which fuzz function goes first might not be deterministic,
 # so check that one appears during the instrumentation phase and 
 # the other appears later during the fuzzing phase, which should be deterministic.
-fzgo test -fuzz=. .../pkg1 -fuzztime 10s 
+fzgo test -fuzz=. .../pkg1 -parallel=1 -fuzztime 5s 
 stdout 'fzgo: building instrumented binary for pkg1.FuzzTwo'
 stdout 'fzgo: starting fuzzing pkg1.FuzzTime'
 stderr 'workers: \d+, corpus: '
 
 # Flag -fuzzdir controls where the corpus goes (which could be in a different repo). 
-# This invocation still uses the cache, as do all subsequent invocations in this script.
-fzgo test -fuzz FuzzTime sample/pkg1 -fuzztime=10s -fuzzdir=$WORK/myfuzzdir
+# This invocation still uses the binary from the instrumentation cache,
+# as do all subsequent invocations in this script.
+fzgo test -fuzz=FuzzTime example.com/pkg1 -parallel=1 -fuzztime=5s -fuzzdir=$WORK/myfuzzdir
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: \d+, corpus: '
-exists $WORK/myfuzzdir/pkg1.FuzzTime/corpus
+exists $WORK/myfuzzdir/example.com/pkg1/FuzzTime/corpus
 
-# Flag -parallel controls the worker count.
-fzgo test -fuzz FuzzTime sample/pkg1 -fuzztime=10s -parallel=1 
+# Verify a known input was copied from <pkg-path>/testdata/...
+# to our user-supplied destination corpus location supplied in -fuzzdir above.
+# See comments in copyCachedCorpus comments in main.go for description of this behavior.
+exists $WORK/myfuzzdir/example.com/pkg1/FuzzTime/corpus/valid-input
+
+# Verify we can ask that our corpus go the <pkg-path>/testdata/... via -fuzzdir=testdata.
+# We also verify that it is seeded from our ephemeral cached corpus in GOPATH/pkg/fuzz/corpus...
+# To do that, we clear a file from <pkg-path>/testdata/... that we know should have been
+# already moved to GOPATH/pkg/fuzz/corpus... above, and then verify it shows up again in <pkg-path>/testdata/...
+rm $WORK/gopath/src/example.com/pkg1/testdata/fuzz/FuzzTime/corpus/valid-input
+fzgo test -fuzz=FuzzTime example.com/pkg1 -parallel=1 -fuzztime=5s -fuzzdir=testdata
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
-stderr 'workers: 1, corpus: '
+stderr 'workers: \d+, corpus: '
 
-# Flag --test.parallel also works.
-fzgo test -fuzz FuzzTime sample/pkg1 -fuzztime=10s --test.parallel=2
+# Our 'valid-input' file should now have been seeded back into testdata.
+exists $WORK/gopath/src/example.com/pkg1/testdata/fuzz/FuzzTime/corpus/valid-input
+
+# Flag -parallel controls the worker count. Verify we can set it to 2.
+fzgo test -fuzz FuzzTime example.com/pkg1 -parallel=2 -fuzztime=5s 
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: 2, corpus: '
 
 # Flag -c asks to instrument and compile without running (so here we don't limit the duration with -fuzztime).
 # TODO revisit what goes to stdout vs stderr
-fzgo test -fuzz FuzzTime sample/pkg1 -c
+fzgo test -fuzz FuzzTime example.com/pkg1 -c
+stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
+stdout 'fzgo: finished instrumenting binaries'
+! stderr 'workers: \d+, corpus: '
+
+# Flag --test.c also works.
+fzgo test -fuzz FuzzTime example.com/pkg1 -test.c
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stdout 'fzgo: finished instrumenting binaries'
 ! stderr 'workers: \d+, corpus: '
 
 # Flag -v outputs more verbose information when fuzzing.
-fzgo test -fuzz FuzzTime sample/pkg1 -fuzztime=10s -parallel=1 -v
+fzgo test -fuzz FuzzTime example.com/pkg1 -fuzztime=5s -parallel=1 -v
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: 1, corpus: '
 
 # Two test files, with three fuzz funcs. The same test files are used in the package_patterns.txt test script.
 # One file uses '+build fuzz', the other '+build gofuzz'.
 
--- gopath/src/sample/pkg1/fuzz.go --
+-- gopath/src/example.com/pkg1/fuzz.go --
 // +build fuzz
 
 package pkg1
@@ -90,7 +119,7 @@ func FuzzTwo(data []byte) int {
 	return 0
 }
 
--- gopath/src/sample/pkg2/fuzz.go --
+-- gopath/src/example.com/pkg2/fuzz.go --
 // +build gofuzz
 
 package pkg2
@@ -99,3 +128,7 @@ package pkg2
 func FuzzTwo(data []byte) int {
 	return 0
 }
+
+   
+-- gopath/src/example.com/pkg1/testdata/fuzz/FuzzTime/corpus/valid-input --
+1h56m23s
