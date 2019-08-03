@@ -19,16 +19,22 @@ import (
 
 // CacheDir returns <GOPATH>/pkg/fuzz/<GOOS_GOARCH>/<hash>/<package_fuzzfunc>/
 func CacheDir(hash, pkgName, fuzzName string) string {
-	gp := os.Getenv("GOPATH")
-	if gp == "" {
-		gp = build.Default.GOPATH
-	}
+	gp := Gopath()
 	s := strings.Split(gp, string(os.PathListSeparator))
 	if len(s) > 1 {
 		gp = s[0]
 	}
 	return filepath.Join(gp, "pkg", "fuzz", fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH),
 		hash, fuzzName)
+}
+
+// Gopath returns the current effective GOPATH (from the GOPATH env, or the default if env var now set).
+func Gopath() string {
+	gp := os.Getenv("GOPATH")
+	if gp == "" {
+		gp = build.Default.GOPATH
+	}
+	return gp
 }
 
 // Hash returns a string representing the hash of the files in a package, its dependencies,
@@ -166,4 +172,69 @@ func goListDeps(pkg string, env []string) ([]string, error) {
 		return nil, err
 	}
 	return results, nil
+}
+
+// CopyDir is a simple implementation of recursively copying a directory.
+// The main use case is copying a corpus directory (which does not have symlinks, etc.).
+// Files that already exist in the destination are left alone.
+func CopyDir(dst string, src string) error {
+	report := func(err error) error {
+		return fmt.Errorf("copy dir failed from %s to %s: %v", dst, src, err)
+	}
+	files, err := ioutil.ReadDir(src)
+	if err != nil {
+		return report(err)
+	}
+	if err := os.MkdirAll(dst, 0700); err != nil {
+		return report(err)
+	}
+	for _, f := range files {
+		dstName := filepath.Join(dst, f.Name())
+		srcName := filepath.Join(src, f.Name())
+		if f.IsDir() {
+			if err := CopyDir(dstName, srcName); err != nil {
+				return report(err)
+			}
+		} else {
+			if err := CopyFile(dstName, srcName); err != nil {
+				return report(err)
+			}
+		}
+	}
+	return nil
+}
+
+// CopyFile copies a file. A dst file that already exists
+// is left alone, and is not an error. The main use case
+// is updating a corpus from GOPATH/pkg/fuzz/corpus/...,
+// and we trust the destination if the file already exists.
+func CopyFile(dst string, src string) error {
+	report := func(err error) error {
+		return fmt.Errorf("copy file failed from %s to %s: %v", dst, src, err)
+	}
+	if PathExists(dst) {
+		return nil
+	}
+	w, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0700)
+	if err != nil {
+		return report(err)
+	}
+	defer w.Close()
+	r, err := os.Open(src)
+	if err != nil {
+		return report(err)
+	}
+	defer r.Close()
+	if _, err := io.Copy(w, r); err != nil {
+		return report(err)
+	}
+	return nil
+}
+
+// PathExists reports if a path is exists.
+func PathExists(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+	return true
 }

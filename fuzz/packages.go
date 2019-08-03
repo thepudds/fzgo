@@ -40,7 +40,6 @@ func (f *Func) String() string {
 // suggests not allowing something like 'go test -fuzz=. ./...' to match multiple fuzz functions.
 // As an experiment, allowMultiFuzz flag allows that.
 // FindFunc searches for a requested function to visit.
-// TODO: from richsig
 func FindFunc(pkgPattern, funcPattern string, env []string, allowMultiFuzz bool) ([]Func, error) {
 	report := func(err error) error {
 		return fmt.Errorf("error while loading packages for pattern %v: %v", pkgPattern, err)

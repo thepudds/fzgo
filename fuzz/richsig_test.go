@@ -18,8 +18,6 @@ func TestWrapperGeneration(t *testing.T) {
 		args       args
 		wantOutput string
 		wantErr    bool
-		// TODO: delete? update? not use currently.
-		// want    []Func
 	}{
 		{
 			name:    "only basic types: string, []byte, bool",
@@ -147,21 +145,17 @@ func fuzzOne (fuzzer *randparam.Fuzzer) {
 			var b bytes.Buffer
 			functions, err := FindFunc(tt.args.pkgPattern, tt.args.funcPattern, nil, tt.args.allowMultiFuzz)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FindFunc() error = %v, wantErr %v", err, tt.wantErr)
-				return
+				t.Fatalf("FindFunc() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			createWrapper(&b, functions[0])
+			err = createWrapper(&b, functions[0])
+			if err != nil {
+				t.Fatalf("createWrapper() error = %v", err)
+			}
 			gotOutput := b.String()
 			diff := cmp.Diff(tt.wantOutput, gotOutput)
 			if diff != "" {
-				t.Fatalf("FindFunc() failed to match function output. diff:\n%s", diff)
+				t.Fatalf("createWrapper() failed to match function output. diff:\n%s", diff)
 			}
-
-			/* TODO: delete? update?
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("FindFunc() = %v, want %v", got, tt.want)
-			}
-			*/
 		})
 	}
 }
