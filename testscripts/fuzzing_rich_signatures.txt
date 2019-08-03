@@ -1,14 +1,11 @@
 # Test fuzzing rich sigs. We could assume go-fuzz and go-fuzz-build binaries are in the path,
 # but we start these tests doing 'go get' on github.com/dvyukov/go-fuzz/... because we need
 # the go-fuzz-dep source code to be findable by go-fuzz-build (when it invokes 'go list').
-
-# TODO: clean up write up, pull in other permutations from fuzzing.txt
+# Reminder: the tests here can be run by themselves from the fzgo directory via:
+#    go test -run=TestScripts/fuzzing_rich_signatures .
 
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
-
-# sanity check upfront
-exists $WORK/gopath/src/sample/richsignatures
 
 # get our dependencies
 go get -v -u github.com/thepudds/fzgo/...
@@ -28,22 +25,23 @@ exists $WORK/gopath/bin/go-fuzz-build$exe
 
 # First fuzz test: no fzgo cache, so we build the instrumented binary from scratch.
 # This also creates our corpus directory in the default location.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s
+fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -fuzztime=5s
 stdout 'building instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
-exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzWithBasicTypes/corpus
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzWithBasicTypes/corpus
 
 # Second fuzz test: now we use the fzgo cache.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s
+# We also specify -parallel=1 to reduce CPU usage for our remaining tests.
+fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -parallel=1 -fuzztime=5s
 stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 
 # Flag -fuzzdir controls where the corpus goes (which could be in a different repo). 
 # This invocation still uses the cache, as do all subsequent invocations in this script.
-fzgo test -fuzz=FuzzWithBasicTypes sample/richsignatures -fuzztime=5s -fuzzdir=$WORK/myfuzzdir
+fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -parallel=1 -fuzztime=5s -fuzzdir=$WORK/myfuzzdir
 stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
-exists $WORK/myfuzzdir/pkgname.FuzzWithBasicTypes/corpus
+exists $WORK/myfuzzdir/example.com/richsignatures/FuzzWithBasicTypes/corpus
 
 # Uncomment this next line if you don't want to rely on goimports
 # [!exec:goimports] stop 'skipping remaining step that currently relies on goimports being in the path'
@@ -54,21 +52,21 @@ stderr 'goimports'
 
 # Check rich signature from stdlib (uses regexp)
 # This currently relies on goimports being in the path.
-fzgo test -fuzz=FuzzWithStdlibType sample/richsignatures -fuzztime=5s
+fzgo test -fuzz=FuzzWithStdlibType example.com/richsignatures -parallel=1 -fuzztime=5s
 stdout 'building instrumented binary for pkgname.FuzzWithStdlibType'
 stderr 'workers: \d+, corpus: '
-exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzWithStdlibType/corpus
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzWithStdlibType/corpus
 
 # Check we can get a crasher relatively quickly by finding a 64 bit int via a rich signature, which
-# should imply go-fuzz literal injection is working end-to-end with rich signatures.
-fzgo test -fuzz=FuzzHardToGuessNumber sample/richsignatures -fuzztime=20s
+# should imply go-fuzz literal injection is working end-to-end with fzgo's rich signatures.
+fzgo test -fuzz=FuzzHardToGuessNumber example.com/richsignatures -parallel=1 -fuzztime=10s
 stdout 'building instrumented binary for pkgname.FuzzHardToGuessNumber'
 stderr 'workers: \d+, corpus: .* crashers: [^0]'
-exists $WORK/gopath/src/sample/richsignatures/testdata/fuzz/pkgname.FuzzHardToGuessNumber/corpus
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzHardToGuessNumber/corpus
 
-# TODO: currently this is cloned from examples dir in fzgo repo
+# NOTE: currently this is cloned from examples dir in fzgo repo. (Probably good to have locally here?)
 
--- gopath/src/sample/richsignatures/richsignatures.go --
+-- gopath/src/example.com/richsignatures/richsignatures.go --
 package pkgname
 
 import (
