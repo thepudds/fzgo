@@ -53,9 +53,9 @@ func IsPlainSig(f *types.Func) (bool, error) {
 	return true, nil
 }
 
-// CreateWrapperFunc creates a temp working directory, then
+// CreateRichSigWrapper creates a temp working directory, then
 // creates a rich signature wrapping fuzz function.
-func CreateWrapperFunc(function Func) (t Target, err error) {
+func CreateRichSigWrapper(function Func) (t Target, err error) {
 	report := func(err error) (Target, error) {
 		return Target{}, fmt.Errorf("creating wrapper function for %s: %v", function.FuzzName(), err)
 	}
@@ -65,11 +65,10 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 	if err != nil {
 		return report(fmt.Errorf("create staging temp dir: %v", err))
 	}
-	// TODO: need to delete temp directory in non-error case.
 	defer func() {
 		// conditionally clean up. (this is a bit of an experiment to use named return err here).
 		if err != nil {
-			// on our our out, but encountered an error, so delete the temp dir
+			// on our way out, but encountered an error, so delete the temp dir
 			os.RemoveAll(tempDir)
 		}
 	}()
@@ -99,7 +98,10 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 
 	// write out temporary richsigwrapper.go file
 	var b bytes.Buffer
-	createWrapper(&b, function)
+	err = createWrapper(&b, function)
+	if err != nil {
+		return report(fmt.Errorf("failed constructing rich signature wrapper: %v", err))
+	}
 	err = ioutil.WriteFile(filepath.Join(wrapperDir, "richsigwrapper.go"), b.Bytes(), 0700)
 	if err != nil {
 		return report(fmt.Errorf("failed to create temporary richsigwrapper.go: %v", err))
@@ -120,8 +122,6 @@ func CreateWrapperFunc(function Func) (t Target, err error) {
 	// TODO: ##################################################################################
 	// TODO: ###########  resume finishing up here, also fuzz.Instrument, fuzz.Start ##########
 	// TODO: ##################################################################################
-
-	// TODO: need to delete temp directory in non-error case.
 
 	// Note: pkg patterns like 'fzgo/...' and 'fzgo/richsigwrapper' don't seem to work, but '.' does.
 	// (We cd'ed above to the working directory. Maybe a go/packages bug, not liking >1 GOPATH entry?)
@@ -149,8 +149,7 @@ func createWrapper(w io.Writer, function Func) error {
 	}
 
 	// start emitting the wrapper program!
-	// TODO: add in something like:
-	// fuzzer := gofuzz.New().NilChance(0.1).NumElements(0, 10).MaxDepth(10)
+	// TODO: add in something like: fuzzer := gofuzz.New().NilChance(0.1).NumElements(0, 10).MaxDepth(10)
 	fmt.Fprintf(w, "\npackage richsigwrapper\n")
 	fmt.Fprintf(w, "\nimport \"%s\"\n", function.PkgPath)
 	fmt.Fprintf(w, `
