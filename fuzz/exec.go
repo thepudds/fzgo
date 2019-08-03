@@ -28,21 +28,28 @@ func Instrument(function Func, verbose bool) (Target, error) {
 		return report(fmt.Errorf("unexpected fuzz function: %#v", function))
 	}
 
+	// check if we have a plain data []byte signature, vs. a rich signature
 	plain, err := IsPlainSig(function.TypesFunc)
 	if err != nil {
 		return report(err)
 	}
 
 	var target Target
-	if !plain {
+	if plain {
+		// create our initial target struct using the actual func supplied by the user.
+		target = Target{UserFunc: function}
+	} else {
 		info("detected rich signature for %v.%v", function.PkgName, function.FuncName)
-		target, err = CreateWrapperFunc(function)
+		// create a wrapper function to handle the rich signature.
+		target, err = CreateRichSigWrapper(function)
 		if err != nil {
 			return report(err)
 		}
-	} else {
-		// create our initial target struct
-		target = Target{UserFunc: function}
+		// CreateRichSigWrapper was succesful, which means it populated the temp dir with the wrapper func.
+		// By the time we leave our current function, we are done with the temp dir
+		// that CreateRichSigWrapper created, so delete via a defer.
+		// (We can't delete it immediately because we haven't yet run go-fuzz-build on it).
+		defer os.RemoveAll(target.wrapperTempDir)
 	}
 
 	// Determine where our cacheDir is.
@@ -66,7 +73,7 @@ func Instrument(function Func, verbose bool) (Target, error) {
 	if _, err = os.Stat(finalZipPath); os.IsNotExist(err) {
 		// TODO: resume here ###########################################################################
 		// clean up the functions running around. switch to target.
-		// also, delete the temp dir. probably with a defer just after target returns succesfully
+		// also, delete the temp dir. probably with a defer just after target returns successfully
 		info("building instrumented binary for %v.%v", function.PkgName, function.FuncName)
 		outFile := filepath.Join(cacheDir, "fuzz.zip.partial")
 		var args []string
@@ -182,7 +189,6 @@ func (t *Target) cacheDir(verbose bool) (string, error) {
 	if t.savedCacheDir == "" {
 		// generate a hash covering the package, its dependencies, and some items like go-fuzz-build binary and go version
 		// TODO: pass verbose flag around?
-		// TODO: update packagedir for trimPrefix if / when target is introduced (want to trim TEMP dir)
 		var err error
 		var h string
 		if !t.hasWrapper {
@@ -219,7 +225,6 @@ func ExecGo(args []string, env []string) error {
 }
 
 // A maxDuration of 0 means no max time is enforced.
-// TODO: added env. make public? put in fzgo/fuzz package?
 func execCmd(name string, args []string, env []string, maxDuration time.Duration) error {
 	report := func(err error) error { return fmt.Errorf("exec %v error: %v", name, err) }
 
