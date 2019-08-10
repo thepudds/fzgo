@@ -13,8 +13,9 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
 such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
 
-* Rich signatures like `FuzzRegexp(re string, input []byte, posix bool)` are supported, as well as the classic `func Fuzz(data []byte) int` form used by `go-fuzz`. 
-* The corpus is automatically used as deterministic input to unit tests when running a normal test (e.g., `fzgo test <pkg>`).
+* Rich signatures like `FuzzRegexp(re string, input []byte, posix bool)` are supported, as well as the classic `Fuzz(data []byte) int` form used by `go-fuzz`. 
+* The corpus is automatically used as deterministic input to unit tests when running a normal `go test`. 
+* Individual corpus files can be unit tested via `fzgo test -fuzz=. -run=TestCorpus/<name>`.
 * `go-fuzz` requires a two step process. `fzgo` eliminates the separate manual preparation step.
 * `fzgo` automatically caches instrumented binaries in `GOPATH/pkg/fuzz` and re-uses them if possible.
 * The fuzzing corpus defaults to `GOPATH/pkg/fuzz/corpus`. 
