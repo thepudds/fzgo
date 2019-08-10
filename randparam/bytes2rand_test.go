@@ -24,7 +24,7 @@ func TestRandSource_Uint64(t *testing.T) {
 			for i := range tt.input {
 				binary.LittleEndian.PutUint64(data[i*8:], tt.input[i])
 			}
-			src := randSource{data}
+			src := randSource{data: data}
 			if gotValue1 := src.Uint64(); gotValue1 != tt.wantDraw1 {
 				t.Errorf("first RandSource.Uint64() = 0x%x, want 0x%x", gotValue1, tt.wantDraw1)
 			}
