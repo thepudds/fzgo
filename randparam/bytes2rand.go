@@ -11,6 +11,26 @@ type randSource struct {
 	data []byte // data is the remaining byte stream to use for random values.
 }
 
+// Remaining reports how many bytes remain in our original input []byte.
+func (s *randSource) Remaining() int {
+	return len(s.data)
+}
+
+// Drain removes all remaining bytes in the input []byte.
+func (s *randSource) Drain() {
+	s.data = nil
+}
+
+// PeekByte looks at the next byte without consuming it,
+// also reporting whether it is an actual byte vs. a zero due to running out of bytes.
+// TODO: remove? No longer using.
+func (s *randSource) PeekByte() (byte, bool) {
+	if len(s.data) > 0 {
+		return s.data[0], true
+	}
+	return 0, false
+}
+
 func (s *randSource) Uint64() uint64 {
 	if len(s.data) >= 8 {
 		valBytes := s.data[:8]
