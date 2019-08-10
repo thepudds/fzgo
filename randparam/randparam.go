@@ -8,6 +8,7 @@
 package randparam
 
 import (
+	"fmt"
 	"math/rand"
 
 	gofuzz "github.com/google/gofuzz"
@@ -44,7 +45,7 @@ var randFuncs = []interface{}{
 // NewFuzzer returns a *Fuzzer, initialized with the []byte as an input stream for drawing values via rand.Rand.
 func NewFuzzer(data []byte) *Fuzzer {
 	// create our random data stream that fill use data []byte for results.
-	fzgoSrc := &randSource{data: data}
+	fzgoSrc := &randSource{data}
 	randSrc := rand.New(fzgoSrc)
 
 	// create some closures for custom fuzzing (so that we have direct access to fzgoSrc).
@@ -62,6 +63,37 @@ func NewFuzzer(data []byte) *Fuzzer {
 
 	// create the google/gofuzz fuzzer
 	gofuzzFuzzer := gofuzz.New().RandSource(randSrc).Funcs(funcs...)
+
+	// TODO: pick parameters for NilChance, NumElements, e.g.:
+	//     gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
+	// Initially allowing too much variability with NumElements seemed
+	// to be a problem, but more likely that was an early indication of
+	// the need to better tune the exact string/[]byte encoding to work
+	// better with sonar.
+
+	// TODO: consider using the first byte for meta parameters, such as:
+	// firstByte := fzgoSrc.Byte()
+	// switch {
+	// case firstByte < 32:
+	// 	gofuzzFuzzer.NilChance(0).NumElements(2, 2)
+	// case firstByte < 64:
+	// 	gofuzzFuzzer.NilChance(0).NumElements(1, 1)
+	// case firstByte < 64+32:
+	// 	gofuzzFuzzer.NilChance(0).NumElements(3, 3)
+	// case firstByte < 64+64:
+	// 	gofuzzFuzzer.NilChance(0).NumElements(4, 4)
+	// case firstByte <= 255:
+	// 	gofuzzFuzzer.NilChance(0).NumElements(0, 10)
+	// }
+
+	// TODO: probably delete the alternative string encoding code.
+	// Probably DON'T have different string encodings.
+	// (I suspect it helped the fuzzer get 'stuck' if there multiple ways
+	// to encode same "interesting" inputs).
+	// if bits.OnesCount8(firstByte)%2 == 0 {
+	// 	fzgoSrc.lengthEncodedStrings = false
+	// }
+
 	f := &Fuzzer{gofuzzFuzzer: gofuzzFuzzer}
 	return f
 }
@@ -74,22 +106,140 @@ func (f *Fuzzer) Fuzz(obj interface{}) {
 
 // Override google/gofuzz fuzzing approach for strings, []byte, and numbers
 
-// randBytes generates a 0-255 len byte slice using the input []byte stream.
-// The next byte in the input []byte is used as the length, and then the subsequent
-// values in the input []byte are used as the content. If we run out of
-// input []byte data, then zeros are supplied by fzgo/randparam.randSource.
+// randBytes is a custom fill function so that we have exact control over how
+// strings and []byte are encoded.
+//
+// randBytes generates a byte slice using the input []byte stream.
+// []byte are deserialized as length encoded, where a leading byte
+// encodes the length in range [0-255], but the exact interpretation is a little subtle.
+// There is surely room for improvement here, but this current approach is the result of some
+// some basic experimentation with some different alternatives, with this approach
+// yielding decent results in terms of fuzzing efficiency on basic tests,
+// so using this approach at least for now.
+//
+// The current approach:
+//
+// 1. Do not use 0x0 to encode a zero length string (or zero length []byte).
+//
+// We need some way to encode nil byte slices and empty strings
+// in the input data []byte. Using 0x0 is the obvious way to encode
+// a zero length, but that was not a good choice based on some experimentation.
+// I suspect partly because fuzzers (e.g,. go-fuzz) like to insert zeros,
+// but more importantly because a 0x0 length field does not give go-fuzz sonar
+// anything to work with when looking to substitute a value back in.
+// If sonar sees [0x1][0x42] in the input data, and observes 0x42 being used live
+// in a string comparison against the value "bingo", sonar can update the data
+// to be [0x5][b][i][n][g][o] based on finding the 0x42 and guessing the 0x1
+// is a length field that it then updates. In contrast, if sonar sees [0x0] in the input
+// data and observes "" being used in a string comparison against "bingo",
+// sonar can't currently hunt to find "" in the input data (though I suspect in
+// theory sonar could be updated to look for a 0x0 and guess it is a zero length string).
+// Net, we want something other than 0x0 to indicate a zero length string or byte slice.
+// We pick 0xFF to indicate a zero length.
+//
+// 2. Do not cap the size at the bytes remaining.
+//
+// I suspect that also interferes with go-fuzz sonar, which attempts
+// to find length fields to adjust when substituting literals.
+// If we cap the number of bytes, it means the length field in the input []byte
+// would not agree with the actual length used, which means
+// sonar does not adjust the length field correctly.
+// A concrete example is that if we were to cap the size of what we read,
+// the meaning of [0xF1][0x1][0x2][EOD] would change once new data is appended,
+// but more importantly sonar would not properly adjust the 0xF1 as a length
+// field if sonar substituted in a more interesting string value in place of [0x1][0x2].
+//
+// 3. Do not drawing zeros past the end of the input []byte.
+//
+// This is similar reasons as 1 and 2. Drawing zeros past the end
+// also means a value that shows  up in the live code under test
+// does not have a byte-for-byte match with something in the input []byte.
+//
+// 4. Skip over any 0x0 byte values that would otherwise have been a size field.
+//
+// This is effectively an implementation detail of 1. In other words,
+// if we don't use 0x0 to ecode a zero length string, we need to do
+// something when we find a 0x0 in the spot where a length field would go.
+//
+// Summary: one way to think about it is the encoding of a length field is:
+//      * 0-N 0x0 bytes prior to a non-zero byte, and
+//      * that non-zero byte is the actual length used, unless that non-zero byte
+//	      is 0xFF, in which case that signals a zero-length string/[]byte, and
+//      * the length value used must be able to draw enough real random bytes from the input []byte.
 func randBytes(ptr *[]byte, c gofuzz.Continue, fzgoSrc *randSource) {
-	// draw a size in [0, 255] from our input byte[] stream
-	size := int(fzgoSrc.Byte())
-	bs := make([]byte, size)
+	verbose := false // TODO: probably remove eventually.
+	if verbose {
+		fmt.Println("randBytes verbose:", verbose)
+	}
 
+	var bs []byte
+	var size int
+
+	// try to find a size field.
+	// this is slightly more subtle than just reading one byte,
+	// mainly in order to better work with go-fuzz sonar.
+	// see long comment above.
+	for {
+		if fzgoSrc.Remaining() == 0 {
+			if verbose {
+				fmt.Println("ran out of bytes, 0 remaining")
+			}
+			// return nil slice (which will be empty string for string)
+			*ptr = nil
+			return
+
+		}
+
+		// draw a size in [0, 255] from our input byte[] stream
+		sizeField := int(fzgoSrc.Byte())
+		if verbose {
+			fmt.Println("sizeField:", sizeField)
+		}
+
+		// If we don't have enough data, we want to
+		// *not* use the size field or the data after sizeField,
+		// in order to work better with sonar.
+		if sizeField > fzgoSrc.Remaining() {
+			if verbose {
+				fmt.Printf("%d bytes requested via size field, %d remaining, drain rest\n",
+					sizeField, fzgoSrc.Remaining())
+			}
+			// return nil slice (which will be empty string for string).
+			// however, before we return, we consume all of our remaining bytes.
+			fzgoSrc.Drain()
+
+			*ptr = nil
+			return
+		}
+
+		// skip over any zero bytes for our size field
+		// In other words, the encoding is 0-N 0x0 bytes prior to a useful length
+		// field we will use.
+		if sizeField == 0x0 {
+			continue
+		}
+
+		// 0xFF is our chosen value to represent a zero length string/[]byte.
+		// (See long comment above for some rationale).
+		if sizeField == 0xFF {
+			size = 0
+		} else {
+			size = sizeField
+		}
+
+		// found a usable, non-zero sizeField. let's move on to use it on the next bytes!
+		break
+	}
+
+	bs = make([]byte, size)
 	for i := range bs {
 		bs[i] = fzgoSrc.Byte()
 	}
-
 	*ptr = bs
 }
 
+// randString is a custom fill function so that we have exact control over how
+// strings are encoded. It is a thin wrapper over randBytes.
 func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 	var bs []byte
 	randBytes(&bs, c, fzgoSrc)
@@ -101,6 +251,18 @@ func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 // as a source for data, which means obtaining 64-bits of the input stream
 // at a time. For sizes < 64 bits, this could be tighted up to waste less of the input stream
 // by getting access to fzgo/randparam.randSource.
+//
+// Once the end of the input []byte is reached, zeros are drawn, including
+// if in the middle of obtaining bytes for a >1 bye number.
+// Tt is probably ok to draw zeros past the end
+// for numbers because we use a little endian interpretation
+// for numbers (which means if we find byte 0x1 then that's the end
+// and we draw zeros for say a uint32, the result is 1; sonar
+// seems to guess the length of numeric values, so it likely
+// works end to end even if we draw zeros.
+// TODO: The next bytes appended (via some mutation) for an number will change
+// the result (e.g., if a 0x2 is appended in example above, result is no longer 1),
+// so maybe better to also not draw zeros for numeric values?
 
 func randInt(val *int, c gofuzz.Continue) {
 	*val = int(c.Rand.Uint64())
