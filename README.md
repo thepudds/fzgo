@@ -13,13 +13,13 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
 such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
 
+* Rich signatures like `FuzzRegexp(re string, input []byte, posix bool)` are supported, as well as the classic `func Fuzz(data []byte) int` form used by `go-fuzz`. 
+* The corpus is automatically used as deterministic input to unit tests when running a normal test (e.g., `fzgo test <pkg>`).
 * `go-fuzz` requires a two step process. `fzgo` eliminates the separate manual preparation step.
 * `fzgo` automatically caches instrumented binaries in `GOPATH/pkg/fuzz` and re-uses them if possible.
-* The fuzzing corpus defaults to `pkgpath/testdata/fuzz/fuzzname`. 
-* The `-fuzzdir` flag allows the corpus to be stored elsewhere (e.g., a separate corpus repo).
-* The fuzzing function name must begin with `Fuzz` and still uses the `func Fuzz(data []byte) int` form used by `go-fuzz`. 
+* The fuzzing corpus defaults to `GOPATH/pkg/fuzz/corpus`. 
+* The `-fuzzdir=/some/path` flag allows the corpus to be stored elsewhere (e.g., a separate corpus repo); `-fuzzdir=testdata` stores the corpus under `<pkgpath>/testdata/fuzz/fuzzname` (hence typically in VCS with the code under test).
 * `fuzz` and `gofuzz` build tags are allowed but not required.
-* The corpus is automatically used as deterministic input to unit tests when running a normal test (e.g., `fzgo test <pkg>`).
 
 ## Usage
 ```
@@ -28,10 +28,13 @@ Usage: fzgo test [build/test flags] [packages] [build/test flags]
 Examples:
 
    fzgo test                           # normal 'go test' of current package, plus run any corpus as unit tests
-   fzgo test -fuzz .                   # fuzz the current package with a function starting with 'Fuzz'
-   fzgo test -fuzz FuzzFoo             # fuzz the current package with a function matching 'FuzzFoo'
-   fzgo test ./... -fuzz FuzzFoo       # fuzz a package in ./... with a function matching 'FuzzFoo'
-   fzgo test sample/pkg -fuzz FuzzFoo  # fuzz 'sample/pkg' with a function matching 'FuzzFoo'
+   fzgo test -fuzz=.                   # fuzz the current package with a function starting with 'Fuzz'
+   fzgo test -fuzz=FuzzFoo             # fuzz the current package with a function matching 'FuzzFoo'
+   fzgo test ./... -fuzz=FuzzFoo       # fuzz a package in ./... with a function matching 'FuzzFoo'
+   fzgo test sample/pkg -fuzz=FuzzFoo  # fuzz 'sample/pkg' with a function matching 'FuzzFoo'
+
+Rich signatures like Fuzz(re string, input []byte, posix bool)` are supported, as well Fuzz(data []byte) int.
+Fuzz functions must start with 'Fuzz'.
 
 The following flags work with 'fzgo test -fuzz':
 
@@ -75,17 +78,19 @@ and nicely extracted at [rogpeppe/go-internal/testscript](https://github.com/rog
 
 Three changes between the current fzgo prototype vs. the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008):
 
-1. Initially, fzgo disallowed multiple fuzz functions to match (per the March 2017 proposal),
+1. fzgo supports rich signatures.
+2. The corpus location does not default to `<pkgpath>/testdata/fuzz`, but instead follows the approach outlined [here](https://groups.google.com/d/msg/golang-fuzzing-proposal/WVyRXx7AsO4/CXzvbMT1CgAJ) and more precisely described in [PR #7](https://github.com/thepudds/fzgo/pull/7).
+3. Initially, fzgo disallowed multiple fuzz functions to match (per the March 2017 proposal),
 but as an experiment fzgo now allows multiple fuzz functions to match in order to 
 support something like 'go test -fuzz=. ./...' when there are multiple fuzz functions
 across multiple packages. Fuzzing happens in round-robin manner if multiple fuzz functions match.
-2. Some of the commentators at [#19109](https://golang.org/issue/19109) suggested `-fuzztime duration` as a 
+4. The proposal document suggested `GOPATH/pkg/GOOS_GOARCH_fuzz/` for a cache, but the prototype instead
+uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
+5. The initial proposal document suggested generating new mutation-based inputs during `go test` when `-fuzz` was not specified. In order to keep `go test` deterministic, `fzgo` does not do that, but now does use the corpus as a deterministic set of inputs during `go test` when `-fuzz` is not specified.  Also, the proposal document suggested `-fuzzinput` as a way of specifying a file from the corpus to execute as a unit test. `fzgo` instead uses the normal `-run` argument to `go test`. For example, `fzgo test -run=TestCorpus/4fa128cf066f2a31 some/pkg` runs the any file in the `some/pkg` corpus with a filename matching `4fa128cf066f2a31`.
+6. Some of the commentators at [#19109](https://golang.org/issue/19109) suggested `-fuzztime duration` as a 
 way of controlling when to stop fuzzing. The proposal document does not include `-fuzztime` and `go-fuzz` 
 does not support it, but it seems useful in general and `-fuzztime` is in the prototype (and it proved 
-useful while testing the prototype).
-3. The proposal document suggested `GOPATH/pkg/GOOS_GOARCH_fuzz/` for a cache, but the prototype instead
-uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
-4. The initial proposal document suggested generating new mutation-based inputs during `go test` when `-fuzz` was not specified. In order to keep `go test` deterministic, `fzgo` does not do that, but now does use the corpus as a deterministic set of inputs during `go test` when `-fuzz` is not specified.  Also, the proposal document suggested `-fuzzinput` as a way of specifying a file from the corpus to execute as a unit test. `fzgo` instead uses the normal `-run` argument to `go test`. For example, `fzgo test -run=TestCorpus/4fa128cf066f2a31 some/pkg` runs the any file in the `some/pkg` corpus with a filename matching `4fa128cf066f2a31`.
+useful while testing the prototype). This might be removed later.
 
 #### Pieces of proposal document not implemented in this prototype
 
