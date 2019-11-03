@@ -972,6 +972,7 @@ func Fuzz_TrimSuffix(s string, suffix string) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pkgPattern := "strings"
 			options := flagExcludeFuzzPrefix | flagAllowMultiFuzz
 			if tt.onlyExported {
@@ -1000,3 +1001,4 @@ func Fuzz_TrimSuffix(s string, suffix string) {
 		})
 	}
 }
+

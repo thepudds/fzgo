@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -107,6 +108,16 @@ func FindFunc(pkgPattern, funcPattern string, env []string, allowMultiFuzz bool)
 	if len(result) == 0 {
 		return nil, fmt.Errorf("failed to find fuzz function for pattern %v and func %v", pkgPattern, funcPattern)
 	}
+	// put our found functions into a deterministic order
+	sort.Slice(result, func(i, j int) bool {
+		// types.Func.String outputs strings like:
+		//   func (github.com/thepudds/fzgo/genfuzzfuncs/examples/test-constructor-injection.A).ValMethodWithArg(i int) bool
+		// works ok for clustering results, though pointer receiver and non-pointer receiver methods don't cluster.
+		// for direct fuzzing, we only support functions, not methods, though for wrapping (outside of fzgo itself) we support methods.
+		// could strip '*' or sort another way, but probably ok, at least for now.
+		return result[i].TypesFunc.String() < result[j].TypesFunc.String()
+	})
+
 	return result, nil
 }
 

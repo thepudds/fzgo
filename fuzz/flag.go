@@ -63,7 +63,6 @@ var IncompatibleTestFlags = []string{
 	"mutexprofilefraction", // -mutexprofilefraction n  (Sample 1 in n stack traces of goroutines holding a...)
 	"o",                    // -o file  (Compile the test binary to the named file.)
 	"outputdir",            // -outputdir directory  (Place output files from profiling in the specified directory,...)
-	"run",                  // -run regexp  (Run only those tests and examples matching the regular expression.)
 	"short",                // -short  (Tell long-running tests to shorten their run time.)
 	"trace",                // -trace trace.out  (Write an execution trace to the specified file before exiting.)
 	"vet",                  // -vet list  (Configure the invocation of "go vet" during "go test"...)
@@ -97,7 +96,9 @@ func ParseArgs(args []string, fs *flag.FlagSet) (string, error) {
 
 	// first, check if we are asked to do anything fuzzing-related by
 	// checking if -fuzz or -test.fuzz is present.
-	_, _, ok := FindTestFlag(args, []string{"fuzz"})
+	// also check if -run is passed, because we might being asked to
+	// verify a corpus.
+	_, _, ok := FindTestFlag(args, []string{"fuzz", "run"})
 	if !ok {
 		// nothing else to do for any fuzz-related args parsing.
 		return "", nil

@@ -41,11 +41,13 @@ func Instrument(function Func, verbose bool) (Target, error) {
 	} else {
 		info("detected rich signature for %v.%v", function.PkgName, function.FuncName)
 		// create a wrapper function to handle the rich signature.
-		target, err = CreateRichSigWrapper(function)
+		// When fuzzing, we do not want to print our arguments.
+		printArgs := false
+		target, err = CreateRichSigWrapper(function, printArgs)
 		if err != nil {
 			return report(err)
 		}
-		// CreateRichSigWrapper was succesful, which means it populated the temp dir with the wrapper func.
+		// CreateRichSigWrapper was successful, which means it populated the temp dir with the wrapper func.
 		// By the time we leave our current function, we are done with the temp dir
 		// that CreateRichSigWrapper created, so delete via a defer.
 		// (We can't delete it immediately because we haven't yet run go-fuzz-build on it).
@@ -81,6 +83,7 @@ func Instrument(function Func, verbose bool) (Target, error) {
 			args = []string{
 				"-func=" + target.UserFunc.FuncName,
 				"-o=" + outFile,
+				// "-race", // TODO: make a flag
 				buildTagsArg,
 				target.UserFunc.PkgPath,
 			}
@@ -88,6 +91,7 @@ func Instrument(function Func, verbose bool) (Target, error) {
 			args = []string{
 				"-func=" + target.wrapperFunc.FuncName,
 				"-o=" + outFile,
+				// "-race", // TODO: make a flag
 				buildTagsArg,
 				target.wrapperFunc.PkgPath,
 			}
@@ -285,3 +289,5 @@ func info(s string, args ...interface{}) {
 	//    (The go command's standard error is reserved for printing errors building the tests.)
 	fmt.Println("fzgo:", fmt.Sprintf(s, args...))
 }
+
+

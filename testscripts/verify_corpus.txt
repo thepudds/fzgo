@@ -13,6 +13,7 @@ go get -v -u github.com/thepudds/fzgo/examples/...
 # Verify the corpus for FuzzTime. This automatically also passes through to
 # the normal 'go test', which causes it to report 'no test files'
 fzgo test github.com/thepudds/fzgo/examples/time
+exists $WORK/gopath/src/github.com/thepudds/fzgo/examples/time/testdata/fuzz/FuzzTime
 stdout '^ok .*fzgo-verify-corpus'
 stdout 'github.com/thepudds/fzgo/examples/time.*\[no test files\]'
 
@@ -28,8 +29,3 @@ stdout 'github.com/thepudds/fzgo/examples/time.*\[no test files\]'
 fzgo test github.com/thepudds/fzgo/examples/empty
 ! stdout 'fzgo-verify-corpus'
 stdout 'github.com/thepudds/fzgo/examples/empty.*\[no test files\]'
-
-# TODO: maybe try png? Might not currently won't work due to corpus layout?
-# go get -v -u github.com/dvyukov/go-fuzz-corpus/png
-# fzgo test github.com/dvyukov/go-fuzz-corpus/png
-# stdout '^ok .*fzgo-verify-corpus'

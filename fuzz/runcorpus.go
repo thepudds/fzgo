@@ -20,7 +20,13 @@ var ErrGoTestFailed = errors.New("go test failed")
 // The inputs used are all deterministic (without generating new fuzzing-based inputs).
 // The names used with t.Run mean a 'fzgo test -run=TestCorpus/<corpus-file-name>' works.
 // One way to see the file names or otherwise verify execution is to run 'fzgo test -v <pkg>'.
-func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
+func VerifyCorpus(function Func, workDir string, run string, verbose bool) error {
+	report := func(err error) error {
+		if err == ErrGoTestFailed {
+			return err
+		}
+		return fmt.Errorf("verify corpus for %s: %v", function.FuzzName(), err)
+	}
 
 	corpusDir := filepath.Join(workDir, "corpus")
 	if _, err := os.Stat(corpusDir); os.IsNotExist(err) {
@@ -28,13 +34,54 @@ func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
 		// TODO: a future real 'go test' invocation should be silent in this case,
 		// given the proposed intent is to always check for a corpus for normal 'go test' invocations.
 		// However, maybe fzgo should warn? or warn if -v is passed? or always be silent?
+		// Right now, main.go is making the decision to skip calling VerifyCorpus if workDir is not found.
 		return nil
 	}
 
-	// create temp dir to work in
+	// check if we have a plain data []byte signature, vs. a rich signature
+	plain, err := IsPlainSig(function.TypesFunc)
+	if err != nil {
+		return report(err)
+	}
+
+	var target Target
+	if plain {
+		// create our initial target struct using the actual func supplied by the user.
+		target = Target{UserFunc: function}
+	} else {
+		info("detected rich signature for %v.%v", function.PkgName, function.FuncName)
+		// create a wrapper function to handle the rich signature.
+		// if both -v and -run is set (presumaly to some corpus file),
+		// as a convinience also print the deserialized arguments
+		var printArgs bool
+		if verbose && run != "" {
+			printArgs = true
+		}
+		target, err = CreateRichSigWrapper(function, printArgs)
+		if err != nil {
+			return report(err)
+		}
+		// CreateRichSigWrapper was successful, which means it populated the temp dir with the wrapper func.
+		// By the time we leave our current function, we are done with the temp dir
+		// that CreateRichSigWrapper created, so delete via a defer.
+		// (We can't delete it immediately because we haven't yet run go-fuzz-build on it).
+		defer os.RemoveAll(target.wrapperTempDir)
+
+		// TODO: consider moving gopath setup into richsig, store on Target
+		// also set up a second entry in GOPATH to include our temporary directory containing the rich sig wrapper.
+		// origGp := Gopath()
+		// gp := strings.Join([]string{origGp, filepath.Join(target.wrapperTempDir, "gopath")},
+		// 	string(os.PathListSeparator))
+		// // Create an env map to include our temporary gopath.
+		// // (If env contains duplicate environment keys for GOPATH, only the last value is used).
+		// env = append(os.Environ(), "GOPATH="+gp)
+	}
+
+	// create temp dir to work in.
+	// this is where we will create a corpus test wrapper suitable for running a normal 'go test'.
 	tempDir, err := ioutil.TempDir("", "fzgo-verify-corpus")
 	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %v", err)
+		return report(fmt.Errorf("failed to create temp dir: %v", err))
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -49,14 +96,25 @@ func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
 	}
 	defer func() { os.Chdir(oldWd) }()
 
+	var pkgPath, funcName string
+	var env []string
+	if target.hasWrapper {
+		pkgPath = target.wrapperFunc.PkgPath
+		funcName = target.wrapperFunc.FuncName
+		env = target.wrapperEnv
+	} else {
+		pkgPath = target.UserFunc.PkgPath
+		funcName = target.UserFunc.FuncName
+		env = nil
+	}
 	// write out temporary corpus_test.go file
 	src := fmt.Sprintf(corpusTestSrc,
-		function.PkgPath,
+		pkgPath,
 		corpusDir,
-		function.FuncName)
+		funcName)
 	err = ioutil.WriteFile(filepath.Join(tempDir, "corpus_test.go"), []byte(src), 0700)
 	if err != nil {
-		return fmt.Errorf("failed to create temporary corpus_test.go: %v", err)
+		return report(fmt.Errorf("failed to create temporary corpus_test.go: %v", err))
 	}
 
 	// actually run 'go test .' now!
@@ -65,8 +123,18 @@ func VerifyCorpus(function Func, workDir string, nonPkgArgs []string) error {
 		buildTagsArg,
 		".",
 	}
-	runArgs = append(runArgs, nonPkgArgs...)
-	err = ExecGo(runArgs, nil)
+	// formerly, we passed through nonPkgArgs here from fzgo flag parsing.
+	// now, we choose which flags explicitly to pass on (currently -run and -v).
+	// we could return to passing through everything, but would need to strip things like -fuzzdir
+	// that 'go test' does not understand.
+	if run != "" {
+		runArgs = append(runArgs, fmt.Sprintf("-run=%s", run))
+	}
+	if verbose {
+		runArgs = append(runArgs, "-v")
+	}
+
+	err = ExecGo(runArgs, env)
 	if err != nil {
 		// we will guess for now at least that this was due to a test failure.
 		// the 'go' command should have already printed the details on the failure.

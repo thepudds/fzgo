@@ -56,6 +56,9 @@ func NewFuzzer(data []byte) *Fuzzer {
 		func(ptr *string, c gofuzz.Continue) {
 			randString(ptr, c, fzgoSrc)
 		},
+		func(ptr *[]string, c gofuzz.Continue) {
+			randStringSlice(ptr, c, fzgoSrc)
+		},
 	}
 
 	// combine our two custom fuzz function lists.
@@ -64,6 +67,7 @@ func NewFuzzer(data []byte) *Fuzzer {
 	// create the google/gofuzz fuzzer
 	gofuzzFuzzer := gofuzz.New().RandSource(randSrc).Funcs(funcs...)
 
+	// gofuzzFuzzer.NilChance(0).NumElements(2, 2)
 	// TODO: pick parameters for NilChance, NumElements, e.g.:
 	//     gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
 	// Initially allowing too much variability with NumElements seemed
@@ -72,19 +76,19 @@ func NewFuzzer(data []byte) *Fuzzer {
 	// better with sonar.
 
 	// TODO: consider using the first byte for meta parameters, such as:
-	// firstByte := fzgoSrc.Byte()
-	// switch {
-	// case firstByte < 32:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(2, 2)
-	// case firstByte < 64:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(1, 1)
-	// case firstByte < 64+32:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(3, 3)
-	// case firstByte < 64+64:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(4, 4)
-	// case firstByte <= 255:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(0, 10)
-	// }
+	firstByte := fzgoSrc.Byte()
+	switch {
+	case firstByte < 32:
+		gofuzzFuzzer.NilChance(0).NumElements(2, 2)
+	case firstByte < 64:
+		gofuzzFuzzer.NilChance(0).NumElements(1, 1)
+	case firstByte < 64+32:
+		gofuzzFuzzer.NilChance(0).NumElements(3, 3)
+	case firstByte < 64+64:
+		gofuzzFuzzer.NilChance(0).NumElements(4, 4)
+	case firstByte <= 255:
+		gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
+	}
 
 	// TODO: probably delete the alternative string encoding code.
 	// Probably DON'T have different string encodings.
@@ -101,6 +105,13 @@ func NewFuzzer(data []byte) *Fuzzer {
 // Fuzz fills in public members of obj. For numbers, strings, []bytes, it tries to populate the
 // obj value with literals found in the initial input []byte.
 func (f *Fuzzer) Fuzz(obj interface{}) {
+	f.gofuzzFuzzer.Fuzz(obj)
+}
+
+// Fill fills in public members of obj. For numbers, strings, []bytes, it tries to populate the
+// obj value with literals found in the initial input []byte.
+// TODO: decide to call this Fill or Fuzz or something else. We support both Fill and Fuzz for now.
+func (f *Fuzzer) Fill(obj interface{}) {
 	f.gofuzzFuzzer.Fuzz(obj)
 }
 
@@ -244,6 +255,80 @@ func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 	var bs []byte
 	randBytes(&bs, c, fzgoSrc)
 	*s = string(bs)
+}
+
+func randStringSlice(s *[]string, c gofuzz.Continue, fzgoSrc *randSource) {
+	size, ok := sz(fzgoSrc)
+	if !ok {
+		*s = nil
+		return
+	}
+	ss := make([]string, size)
+	for i := range ss {
+		var str string
+		randString(&str, c, fzgoSrc)
+		ss[i] = str
+	}
+	*s = ss
+}
+
+func sz(fzgoSrc *randSource) (size int, ok bool) {
+	verbose := false // TODO: probably remove eventually.
+
+	// try to find a size field.
+	// this is slightly more subtle than just reading one byte,
+	// mainly in order to better work with go-fuzz sonar.
+	// see long comment above.
+	for {
+		if fzgoSrc.Remaining() == 0 {
+			if verbose {
+				fmt.Println("ran out of bytes, 0 remaining")
+			}
+			// return nil slice (which will be empty string for string)
+
+			return 0, false
+		}
+
+		// draw a size in [0, 255] from our input byte[] stream
+		sizeField := int(fzgoSrc.Byte())
+		if verbose {
+			fmt.Println("sizeField:", sizeField)
+		}
+
+		// If we don't have enough data, we want to
+		// *not* use the size field or the data after sizeField,
+		// in order to work better with sonar.
+		if sizeField > fzgoSrc.Remaining() {
+			if verbose {
+				fmt.Printf("%d bytes requested via size field, %d remaining, drain rest\n",
+					sizeField, fzgoSrc.Remaining())
+			}
+			// return nil slice (which will be empty string for string).
+			// however, before we return, we consume all of our remaining bytes.
+			fzgoSrc.Drain()
+
+			return 0, false
+		}
+
+		// skip over any zero bytes for our size field
+		// In other words, the encoding is 0-N 0x0 bytes prior to a useful length
+		// field we will use.
+		if sizeField == 0x0 {
+			continue
+		}
+
+		// 0xFF is our chosen value to represent a zero length string/[]byte.
+		// (See long comment above for some rationale).
+		if sizeField == 0xFF {
+			size = 0
+		} else {
+			size = sizeField
+		}
+
+		// found a usable, non-zero sizeField. let's move on to use it on the next bytes!
+		break
+	}
+	return size, true
 }
 
 // A set of custom numeric value filling funcs follows.

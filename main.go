@@ -3,13 +3,16 @@
 // See the README at https://github.com/thepudds/fzgo for more details.
 //
 // There are three main directories used:
-// 1. cacheDir is the location for the instrumented binary, and would typically be something like:
-//      GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
-// 2. fuzzDir is the directory supplied via the -fuzzdir argument, and contains the workDir.
-// 3. workDir is passed to go-fuzz-build and go-fuzz as the -workdir argument.
-//      if -fuzzdir is not specified:  workDir is GOPATH/pkg/fuzz/corpus/<import-path>/<func>
-//      if -fuzzdir is '/some/path':   workDir is /some/path/<import-path>/<func>
-//      if -fuzzdir is 'testdata':     workDir is <pkg-dir>/testdata/fuzz/<func>
+//
+//  1. cacheDir is the location for the instrumented binary, and would typically be something like:
+//        GOPATH/pkg/fuzz/linux_amd64/619f7d77e9cd5d7433f8/fmt.FuzzFmt
+//
+//  2. fuzzDir is the destination supplied by the user via the -fuzzdir argument, and contains the workDir.
+//
+//  3. workDir is passed to go-fuzz-build and go-fuzz as the -workdir argument:
+//        if -fuzzdir is not specified:  workDir is GOPATH/pkg/fuzz/corpus/<import-path>/<func>
+//        if -fuzzdir is '/some/path':   workDir is /some/path/<import-path>/<func>
+//        if -fuzzdir is 'testdata':     workDir is <pkg-dir>/testdata/fuzz/<func>
 package main
 
 import (
@@ -30,6 +33,7 @@ var (
 	flagFuzzDir  string
 	flagFuzzTime time.Duration
 	flagParallel int
+	flagRun      string
 	flagTimeout  time.Duration
 	flagVerbose  bool
 	flagDebug    string
@@ -40,6 +44,8 @@ var flagDefs = []fuzz.FlagDef{
 	{Name: "fuzzdir", Ptr: &flagFuzzDir, Description: "store fuzz artifacts in `dir` (default pkgpath/testdata/fuzz)"},
 	{Name: "fuzztime", Ptr: &flagFuzzTime, Description: "fuzz for duration `d` (default unlimited)"},
 	{Name: "parallel", Ptr: &flagParallel, Description: "start `n` fuzzing operations (default GOMAXPROCS)"},
+	{Name: "run", Ptr: &flagRun, Description: "if supplied with -fuzz, -run=Corpus/123ABCD executes corpus file matching regexp 123ABCD as a unit test." +
+		"Otherwise, run normal 'go test' with only those tests and examples matching the regexp."},
 	{Name: "timeout", Ptr: &flagTimeout, Description: "fail an individual call to a fuzz function after duration `d` (default 10s, minimum 1s)"},
 	{Name: "c", Ptr: &flagCompile, Description: "compile the instrumented code but do not run it"},
 	{Name: "v", Ptr: &flagVerbose, Description: "verbose: print additional output"},
@@ -100,18 +106,24 @@ func fzgoMain() int {
 		return ArgErr
 	}
 
-	if flagFuzzFunc == "" {
-		// 'fzgo test', but no '-fuzz'. We have not been asked to generate new fuzz-based inputs.
-		// instead, we do two things:
-		// 1. we deterministically validate our corpus (if any),
-		status := verifyCorpus(os.Args)
+	if flagFuzzFunc == "" ||
+		flagFuzzFunc != "" && flagRun != "" {
+		// 'fzgo test', but no '-fuzz', or 'fzgo test -fuzz=foo -run=bar'
+		// Either way, we have not been asked to generate new fuzz-based inputs,
+		// but will instead:
+		//   1. we deterministically validate our corpus.
+		//      it might be a subset or a single file if have something like -run=Corpus/01FFABCD
+		status := verifyCorpus(os.Args, flagRun, flagVerbose)
 		if status != Success {
 			return status
 		}
-		// 2. pass our arguments through to the normal 'go' command, which will run normal 'go test'.
-		err = fuzz.ExecGo(os.Args[1:], nil)
-		if err != nil {
-			return OtherErr
+		// if -fuzz is not set, we also:
+		//   2. pass our arguments through to the normal 'go' command, which will run normal 'go test'.
+		if flagFuzzFunc == "" {
+			err = fuzz.ExecGo(os.Args[1:], nil)
+			if err != nil {
+				return OtherErr
+			}
 		}
 		return Success
 	}
@@ -216,10 +228,12 @@ func fzgoMain() int {
 // verifyCorpus validates our corpus by executing any fuzz functions in our package pattern
 // against any files in the corresponding corpus. This is an automatic form of regression test.
 // args is os.Args
-func verifyCorpus(args []string) int {
+func verifyCorpus(args []string, run string, verbose bool) int {
 	// we do this by first searching for any fuzz func ("." regexp) in our package pattern.
 	// TODO: move this elsewhere? Taken from fuzz.ParseArgs, but we can't use fuzz.ParseArgs as is.
-	testPkgPatterns, nonPkgArgs, err := fuzz.FindPkgs(args[2:])
+	// formerly, we used to also obtain nonPkgArgs here and pass them through, but now we effectively
+	// whitelist what we want to pass through to 'go test' (now including -run and -v).
+	testPkgPatterns, _, err := fuzz.FindPkgs(args[2:])
 	if err != nil {
 		fmt.Println("fzgo:", err)
 		return OtherErr
@@ -234,13 +248,11 @@ func verifyCorpus(args []string) int {
 		testPkgPattern = testPkgPatterns[0]
 	}
 
-	functions, err := fuzz.FindFunc(testPkgPattern, ".", nil, true)
+	functions, err := fuzz.FindFunc(testPkgPattern, flagFuzzFunc, nil, true)
 	if err != nil {
 		fmt.Println("fzgo:", err)
 		return OtherErr
 	}
-	// TODO: should we get -v? E.g., something like:
-	// _, verbose := fuzz.FindTestFlag(os.Args[2:], []string{"v"})
 
 	status := Success
 	for _, function := range functions {
@@ -269,13 +281,15 @@ func verifyCorpus(args []string) int {
 		}
 
 		// we have 2 or 3 places to check
+		foundWorkDir := false
 		for _, workDir := range dirsToCheck {
-			if !fuzz.PathExists(workDir) {
-				// this workDir does not exist, so skip
+			if !fuzz.PathExists(filepath.Join(workDir, "corpus")) {
+				// corpus dir in this workDir does not exist, so skip.
 				continue
 			}
+			foundWorkDir = true
 
-			err := fuzz.VerifyCorpus(function, workDir, nonPkgArgs)
+			err := fuzz.VerifyCorpus(function, workDir, run, verbose)
 			if err == fuzz.ErrGoTestFailed {
 				// 'go test' itself should have printed an informative error,
 				// so here we just set a non-zero status code and continue.
@@ -285,6 +299,10 @@ func verifyCorpus(args []string) int {
 				return OtherErr
 			}
 		}
+		if !foundWorkDir {
+			fmt.Println("fzgo: did not find any corpus location for", function.FuzzName())
+		}
+
 	}
 
 	return status
