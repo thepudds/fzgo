@@ -85,26 +85,16 @@ func createWrapper(w io.Writer, function fuzz.Func, possibleConstructors []fuzz.
 	if !ok {
 		return fmt.Errorf("function %s is not *types.Signature (%+v)", function, f)
 	}
-
-	// set up a types.Qualifier func we can use with the types package,
-	// paying attention to whether we are qualifying everything or not.
 	localPkg := f.Pkg()
-	localQualifier := func(pkg *types.Package) string {
-		if pkg == localPkg {
-			return ""
-		}
-		return pkg.Name()
-	}
-	var qualifier types.Qualifier
-	if qualifyAll {
-		qualifier = externalQualifier
-	} else {
-		qualifier = localQualifier
-	}
 
+	// set up types.Qualifier funcs we can use with the types package
+	// to scope variables by a package or not.
+	defaultQualifier, localQualifier := qualifiers(localPkg, qualifyAll)
+
+	// TODO: rename allParams to namespace? or possibleCollisions
 	// start building up our list of parameters we will use in input
 	// parameters to the new wrapper func we are about to emit.
-	var allWrapperParams []*types.Var
+	var allParams []*types.Var
 
 	// check if we have a receiver for the function under test, (i.e., testing a method)
 	// and then see if we can replace the receiver by finding
@@ -134,13 +124,13 @@ func createWrapper(w io.Writer, function fuzz.Func, possibleConstructors []fuzz.
 		if err != nil {
 			return err
 		}
-		allWrapperParams = append(allWrapperParams, paramsToAdd...)
+		allParams = append(allParams, paramsToAdd...)
 	}
 
 	// add in the parameters for the function under test.
 	for i := 0; i < wrappedSig.Params().Len(); i++ {
 		v := wrappedSig.Params().At(i)
-		allWrapperParams = append(allWrapperParams, v)
+		allParams = append(allParams, v)
 	}
 
 	// determine our wrapper name, which includes the receiver's type if we are wrapping a method.
@@ -160,11 +150,11 @@ func createWrapper(w io.Writer, function fuzz.Func, possibleConstructors []fuzz.
 
 	// check if we have an interface or function pointer in our desired parameters,
 	// we can't fill in with values during fuzzing.
-	if disallowedParams(w, allWrapperParams, wrapperName) {
+	if disallowedParams(w, allParams, wrapperName) {
 		// skip this wrapper, disallowedParams emitted a comment with more details.
 		return nil
 	}
-	if len(allWrapperParams) == 0 {
+	if len(allParams) == 0 {
 		// skip this wrapper, not useful for fuzzing if no inputs (no receiver, no parameters).
 		return nil
 	}
@@ -176,63 +166,59 @@ func createWrapper(w io.Writer, function fuzz.Func, possibleConstructors []fuzz.
 	// iterate over the our input parameters and emit.
 	// If we are a method, this includes either an object that is wrapped receiver's type,
 	// or it includes the parameters for a constructor if we found a suitable one.
-	for i, v := range allWrapperParams {
+	for i, v := range allParams {
 		// want: foo string, bar int
 		if i > 0 {
 			// need a comma if something has already been emitted
 			fmt.Fprint(w, ", ")
 		}
-		paramName := renameCollisions(v, i, localPkg, allWrapperParams)
-		typeStringWithSelector := types.TypeString(v.Type(), qualifier)
+		paramName := avoidCollision(v, i, localPkg, allParams)
+		typeStringWithSelector := types.TypeString(v.Type(), defaultQualifier)
 		fmt.Fprintf(w, "%s %s", paramName, typeStringWithSelector)
 	}
 	fmt.Fprint(w, ") {\n")
 
-	for i, v := range allWrapperParams {
-		// always crashing on a nil receiver is not particularly interesting, so emit the code to avoid.
-		// also check if we have any other pointer parameters.
-		// a user can decide to delete if they want to test nil recivers or nil parameters.
-		// also, could have a flag to disable.
-		_, ok := v.Type().(*types.Pointer)
-		if ok {
-			paramName := renameCollisions(v, i, localPkg, allWrapperParams)
-			fmt.Fprintf(w, "\tif %s == nil {\n", paramName)
-			fmt.Fprint(w, "\t\treturn\n")
-			fmt.Fprint(w, "\t}\n")
-		}
-	}
+	// Always crashing on a nil receiver is not particularly interesting, so emit the code to avoid.
+	// Also check if we have any other pointer parameters.
+	emitNilChecks(w, allParams, localPkg)
 
 	// emit a constructor if we have one
 	if ctorReplace.Sig != nil && recv != nil {
 		// insert our constructor!
-		fmt.Fprintf(w, "\t%s := ", renameCollisions(recv, 0, localPkg, allWrapperParams))
+		fmt.Fprintf(w, "\t%s := ", avoidCollision(recv, 0, localPkg, allParams))
 		if qualifyAll {
 			fmt.Fprintf(w, "%s.%s(", localPkg.Name(), ctorReplace.Func.Name())
 		} else {
 			fmt.Fprintf(w, "%s(", ctorReplace.Func.Name())
 		}
-		emitArgs(w, ctorReplace.Sig, localPkg, allWrapperParams)
+		emitArgs(w, ctorReplace.Sig, localPkg, allParams)
 		fmt.Fprintf(w, ")\n")
 	}
 
 	// emit the call to the wrapped function.
-	// this currently assumes it runs in the local package (that is, unqualified name)
-	if recv == nil {
-		if qualifyAll {
-			fmt.Fprintf(w, "\t%s.%s(", localPkg.Name(), f.Name())
-		} else {
-			fmt.Fprintf(w, "\t%s(", f.Name())
-		}
-	} else {
-		recvName := renameCollisions(recv, 0, localPkg, allWrapperParams)
-		fmt.Fprintf(w, "\t%s.%s(", recvName, f.Name())
-	}
+	emitWrappedFunc(w, f, wrappedSig, qualifyAll, allParams, localPkg)
 
-	// emit the arguments to the wrapped function.
-	emitArgs(w, wrappedSig, localPkg, allWrapperParams)
-	fmt.Fprint(w, ")\n}\n\n")
+	fmt.Fprint(w, "}\n\n")
 
 	return nil
+}
+
+// qualifiers sets up a types.Qualifier func we can use with the types package,
+// paying attention to whether we are qualifying everything or not.
+func qualifiers(localPkg *types.Package, qualifyAll bool) (defaultQualifier, localQualifier types.Qualifier) {
+
+	localQualifier = func(pkg *types.Package) string {
+		if pkg == localPkg {
+			return ""
+		}
+		return pkg.Name()
+	}
+	if qualifyAll {
+		defaultQualifier = externalQualifier
+	} else {
+		defaultQualifier = localQualifier
+	}
+	return defaultQualifier, localQualifier
 }
 
 // externalQualifier can be used as types.Qualifier in calls to types.TypeString and similar.
@@ -242,10 +228,10 @@ func externalQualifier(p *types.Package) string {
 	return p.Name()
 }
 
-// renameCollisions takes a variable (which might correpsond to a parameter or argument),
+// avoidCollision takes a variable (which might correpsond to a parameter or argument),
 // and returns a non-colliding name, or the original name, based on
 // whether or not it collided with package name or other with parameters.
-func renameCollisions(v *types.Var, i int, localPkg *types.Package, allWrapperParams []*types.Var) string {
+func avoidCollision(v *types.Var, i int, localPkg *types.Package, allWrapperParams []*types.Var) string {
 	// handle corner case of using the package name as a parameter name (e.g., flag.UnquoteUsage(flag *Flag)),
 	// or two parameters of the same name (e.g., if one was from a constructor and the other from the func under test).
 	paramName := v.Name()
@@ -264,20 +250,56 @@ func renameCollisions(v *types.Var, i int, localPkg *types.Package, allWrapperPa
 	return paramName
 }
 
+// emitNilChecks emits checks for nil for our input parameters.
+// Always crashing on a nil receiver is not particularly interesting, so emit the code to avoid.
+// Also check if we have any other pointer parameters.
+// A user can decide to delete if they want to test nil recivers or nil parameters.
+// Also, could have a flag to disable.
+func emitNilChecks(w io.Writer, allParams []*types.Var, localPkg *types.Package) {
+
+	for i, v := range allParams {
+		_, ok := v.Type().(*types.Pointer)
+		if ok {
+			paramName := avoidCollision(v, i, localPkg, allParams)
+			fmt.Fprintf(w, "\tif %s == nil {\n", paramName)
+			fmt.Fprint(w, "\t\treturn\n")
+			fmt.Fprint(w, "\t}\n")
+		}
+	}
+}
+
+// emitWrappedFunc emits the call to the function under test.
+func emitWrappedFunc(w io.Writer, f *types.Func, wrappedSig *types.Signature, qualifyAll bool, allParams []*types.Var, localPkg *types.Package) {
+	recv := wrappedSig.Recv()
+	if recv != nil {
+		recvName := avoidCollision(recv, 0, localPkg, allParams)
+		fmt.Fprintf(w, "\t%s.%s(", recvName, f.Name())
+	} else {
+		if qualifyAll {
+			fmt.Fprintf(w, "\t%s.%s(", localPkg.Name(), f.Name())
+		} else {
+			fmt.Fprintf(w, "\t%s(", f.Name())
+		}
+	}
+	// emit the arguments to the wrapped function.
+	emitArgs(w, wrappedSig, localPkg, allParams)
+	fmt.Fprint(w, ")\n")
+}
+
 // emitArgs emits the arguments needed to call a signature, including handling renaming arguments
 // based on collisions with package name or other parameters.
 func emitArgs(w io.Writer, sig *types.Signature, localPkg *types.Package, allWrapperParams []*types.Var) {
 	for i := 0; i < sig.Params().Len(); i++ {
 		v := sig.Params().At(i)
-		paramName := renameCollisions(v, i, localPkg, allWrapperParams)
+		paramName := avoidCollision(v, i, localPkg, allWrapperParams)
 		if i > 0 {
-			fmt.Fprintf(w, ", ")
+			fmt.Fprint(w, ", ")
 		}
-		fmt.Fprintf(w, paramName)
+		fmt.Fprint(w, paramName)
 	}
 	if sig.Variadic() {
 		// last argument needs an elipsis
-		fmt.Fprintf(w, "...")
+		fmt.Fprint(w, "...")
 	}
 }
 
@@ -312,7 +334,7 @@ func disallowedParams(w io.Writer, allWrapperParams []*types.Var, wrapperName st
 
 // ctorReplacement holds the signature of a suitable constructor if we found one.
 // We use the signature to "promote" the needed arguments from the constructor
-// parameter list up to the wrapper function paramete list.
+// parameter list up to the wrapper function parameter list.
 // Sig is nil if a suitable constructor was not found.
 type ctorReplacement struct {
 	Sig  *types.Signature
@@ -454,6 +476,7 @@ const (
 
 // FindFunc searches for requested functions matching a package pattern and func pattern.
 // TODO: this is a temporary fork from fzgo/fuzz.FindFunc.
+// TODO: maybe change flags to a predicate function?
 func FindFunc(pkgPattern, funcPattern string, env []string, flags FindFuncFlag) ([]fuzz.Func, error) {
 	report := func(err error) error {
 		return fmt.Errorf("error while loading packages for pattern %v: %v", pkgPattern, err)

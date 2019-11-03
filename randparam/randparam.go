@@ -56,6 +56,9 @@ func NewFuzzer(data []byte) *Fuzzer {
 		func(ptr *string, c gofuzz.Continue) {
 			randString(ptr, c, fzgoSrc)
 		},
+		func(ptr *[]string, c gofuzz.Continue) {
+			randStringSlice(ptr, c, fzgoSrc)
+		},
 	}
 
 	// combine our two custom fuzz function lists.
@@ -64,6 +67,7 @@ func NewFuzzer(data []byte) *Fuzzer {
 	// create the google/gofuzz fuzzer
 	gofuzzFuzzer := gofuzz.New().RandSource(randSrc).Funcs(funcs...)
 
+	// gofuzzFuzzer.NilChance(0).NumElements(2, 2)
 	// TODO: pick parameters for NilChance, NumElements, e.g.:
 	//     gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
 	// Initially allowing too much variability with NumElements seemed
@@ -71,20 +75,20 @@ func NewFuzzer(data []byte) *Fuzzer {
 	// the need to better tune the exact string/[]byte encoding to work
 	// better with sonar.
 
-	// TODO: consider using the first byte for meta parameters, such as:
-	// firstByte := fzgoSrc.Byte()
-	// switch {
-	// case firstByte < 32:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(2, 2)
-	// case firstByte < 64:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(1, 1)
-	// case firstByte < 64+32:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(3, 3)
-	// case firstByte < 64+64:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(4, 4)
-	// case firstByte <= 255:
-	// 	gofuzzFuzzer.NilChance(0).NumElements(0, 10)
-	// }
+	// TODO: consider if we want to use the first byte for meta parameters.
+	firstByte := fzgoSrc.Byte()
+	switch {
+	case firstByte < 32:
+		gofuzzFuzzer.NilChance(0).NumElements(2, 2)
+	case firstByte < 64:
+		gofuzzFuzzer.NilChance(0).NumElements(1, 1)
+	case firstByte < 96:
+		gofuzzFuzzer.NilChance(0).NumElements(3, 3)
+	case firstByte < 128:
+		gofuzzFuzzer.NilChance(0).NumElements(4, 4)
+	case firstByte <= 255:
+		gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
+	}
 
 	// TODO: probably delete the alternative string encoding code.
 	// Probably DON'T have different string encodings.
@@ -101,6 +105,13 @@ func NewFuzzer(data []byte) *Fuzzer {
 // Fuzz fills in public members of obj. For numbers, strings, []bytes, it tries to populate the
 // obj value with literals found in the initial input []byte.
 func (f *Fuzzer) Fuzz(obj interface{}) {
+	f.gofuzzFuzzer.Fuzz(obj)
+}
+
+// Fill fills in public members of obj. For numbers, strings, []bytes, it tries to populate the
+// obj value with literals found in the initial input []byte.
+// TODO: decide to call this Fill or Fuzz or something else. We support both Fill and Fuzz for now.
+func (f *Fuzzer) Fill(obj interface{}) {
 	f.gofuzzFuzzer.Fuzz(obj)
 }
 
@@ -246,6 +257,83 @@ func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 	*s = string(bs)
 }
 
+// TODO: this might be temporary. Here we handle slices of strings as a preview of
+// improvements we might get by dropping google/gofuzz for walking some of the data structures.
+func randStringSlice(s *[]string, c gofuzz.Continue, fzgoSrc *randSource) {
+	size, ok := calcSize(fzgoSrc)
+	if !ok {
+		*s = nil
+		return
+	}
+	ss := make([]string, size)
+	for i := range ss {
+		var str string
+		randString(&str, c, fzgoSrc)
+		ss[i] = str
+	}
+	*s = ss
+}
+
+// TODO: temporarily extracted this from randBytes. Decide to drop vs. keep/unify.
+func calcSize(fzgoSrc *randSource) (size int, ok bool) {
+	verbose := false // TODO: probably remove eventually.
+
+	// try to find a size field.
+	// this is slightly more subtle than just reading one byte,
+	// mainly in order to better work with go-fuzz sonar.
+	// see long comment above.
+	for {
+		if fzgoSrc.Remaining() == 0 {
+			if verbose {
+				fmt.Println("ran out of bytes, 0 remaining")
+			}
+			// return nil slice (which will be empty string for string)
+
+			return 0, false
+		}
+
+		// draw a size in [0, 255] from our input byte[] stream
+		sizeField := int(fzgoSrc.Byte())
+		if verbose {
+			fmt.Println("sizeField:", sizeField)
+		}
+
+		// If we don't have enough data, we want to
+		// *not* use the size field or the data after sizeField,
+		// in order to work better with sonar.
+		if sizeField > fzgoSrc.Remaining() {
+			if verbose {
+				fmt.Printf("%d bytes requested via size field, %d remaining, drain rest\n",
+					sizeField, fzgoSrc.Remaining())
+			}
+			// return nil slice (which will be empty string for string).
+			// however, before we return, we consume all of our remaining bytes.
+			fzgoSrc.Drain()
+
+			return 0, false
+		}
+
+		// skip over any zero bytes for our size field
+		// In other words, the encoding is 0-N 0x0 bytes prior to a useful length
+		// field we will use.
+		if sizeField == 0x0 {
+			continue
+		}
+
+		// 0xFF is our chosen value to represent a zero length string/[]byte.
+		// (See long comment above for some rationale).
+		if sizeField == 0xFF {
+			size = 0
+		} else {
+			size = sizeField
+		}
+
+		// found a usable, non-zero sizeField. let's move on to use it on the next bytes!
+		break
+	}
+	return size, true
+}
+
 // A set of custom numeric value filling funcs follows.
 // These are currently simple implementations that only use gofuzz.Continue
 // as a source for data, which means obtaining 64-bits of the input stream
@@ -260,7 +348,7 @@ func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 // and we draw zeros for say a uint32, the result is 1; sonar
 // seems to guess the length of numeric values, so it likely
 // works end to end even if we draw zeros.
-// TODO: The next bytes appended (via some mutation) for an number will change
+// TODO: The next bytes appended (via some mutation) after a number can change
 // the result (e.g., if a 0x2 is appended in example above, result is no longer 1),
 // so maybe better to also not draw zeros for numeric values?
 
@@ -321,7 +409,6 @@ func randRune(val *rune, c gofuzz.Continue) {
 }
 
 // Note: complex64, complex128, uintptr are not supported by google/gofuzz, I think.
-// Interfaces are also not currently supported by google/gofuzz, or at least not
-// easily as far as I am aware. Might be able to get it to work with custom
-// functions, such as:
-//   func randIoWriter(val *io.Writer, c gofuzz.Continue) {
+// TODO: Interfaces are also not currently supported by google/gofuzz, or at least not
+// easily as far as I am aware. That said, currently have most of the pieces elsewhere
+// for us to handle common interfaces like io.Writer, io.Reader, etc.

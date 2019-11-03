@@ -30,7 +30,7 @@ import (
 // Usage contains short usage information.
 var Usage = `
 usage:
-	genfuzzfuncs [-pkg=pkgPattern] [-func=regexp] [-unexported] [-qualifyall] 
+	genfuzzfuncs [-pkg=pkgPattern] [-func=regexp] [-unexported] [-qualifyall] [-ctors=false] [-ctorspattern=regexp]
 	
 Running genfuzzfuncs without any arguments targets the package in the current directory.
 
@@ -50,7 +50,7 @@ should usaully be able to do so.
 func main() {
 	// handle flags
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, Usage)
+		fmt.Fprint(os.Stderr, Usage)
 		flag.PrintDefaults()
 	}
 	pkgFlag := flag.String("pkg", ".", "package pattern, defaults to current package")
@@ -58,7 +58,7 @@ func main() {
 	unexportedFlag := flag.Bool("unexported", false, "emit wrappers for unexported functions in addition to exported functions")
 	qualifyAllFlag := flag.Bool("qualifyall", true, "all identifiers are qualified with package, including identifiers from the target package. "+
 		"If the package is '.' or not set, this defaults to false. Else, it defaults to true.")
-	constructorFlag := flag.Bool("ctors", false, "automatically insert constructors when wrapping a method call "+
+	constructorFlag := flag.Bool("ctors", true, "automatically insert constructors when wrapping a method call "+
 		"if a suitable constructor can be found in the same package.")
 	constructorPatternFlag := flag.String("ctorspattern", "^New", "regexp to use if searching for constructors to automatically use.")
 

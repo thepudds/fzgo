@@ -7,13 +7,11 @@
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
 
-# get our dependencies
-go get -v -u github.com/thepudds/fzgo/...
+# get our dependencies. 
+# it should be sufficient to get fzgo/randparam, rather than fzgo/...
+# TODO: it would be better to use local copy. currently this gets the copy of fzgo/randparam from github.
+go get -v -u github.com/thepudds/fzgo/randparam
 go get -v -u github.com/google/gofuzz
-go get -v -u golang.org/x/tools/cmd/goimports
-
-# Verify goimports binary seems to exist in our test environment
-exists $WORK/gopath/bin/goimports$exe
 
 # Get go-fuzz (go-fuzz-dep needed by go-fuzz-build).
 go get -v -u github.com/dvyukov/go-fuzz/...
@@ -23,14 +21,44 @@ go install github.com/dvyukov/go-fuzz/...
 exists $WORK/gopath/bin/go-fuzz$exe
 exists $WORK/gopath/bin/go-fuzz-build$exe
 
-# First fuzz test: no fzgo cache, so we build the instrumented binary from scratch.
+# Check we can get a crasher relatively quickly by finding a 64 bit int via a rich signature, which
+# should imply go-fuzz literal injection is working end-to-end with fzgo's rich signatures.
+fzgo test -fuzz=FuzzHardToGuessNumber example.com/richsignatures -parallel=1 -fuzztime=10s
+stdout 'building instrumented binary for pkgname.FuzzHardToGuessNumber'
+stderr 'workers: \d+, corpus: .* crashers: [^0]'
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzHardToGuessNumber/corpus
+
+# Check we can get a crasher relatively quickly by finding a long string via a rich signature, which
+# is harder than the uint64 test. This relies on fzgo's approach
+# to deserializing working well with go-fuzz sonar's approach for variable length strings.
+# When working properly, this is typically found within 10 sec or so but sometimes 30 sec or so.
+# This might have become slower between something like a March 2018 go-fuzz release vs. Aug 2018,
+# but not clear. It might just instead have high variance.
+# Also, versions after 'fc0bf08 go-fuzz-build: improve pkg resolution' avoid a gcc error that started
+# some time prior to that. Spot checked go-fuzz commits 7f2a1780, fc0bf087,  193030f.
+# go-fuzz-build with sha256 14288638034fb712... might have been faster than all of those.
+# I was likely using 7f2a1780 previously. 
+# Seemed to get good results with 7f2a1780 if:
+#    used first byte for meta params, with 0x0 ==> fixed 2.
+#    had the gofuzz edit: f.nilChance == 0.0 {	return true	}
+# TODO: maybe skip harder FuzzHardToGuessStringInSlice, which is often 10-15 sec, 
+# but the two string version was sometimes slow and timed out on 1m.
+# We simplified the test to one string for now.
+fzgo test -fuzz=FuzzHardToGuessStringInSlice example.com/richsignatures -parallel=2 -v -fuzztime=1m
+stdout 'building instrumented binary for pkgname.FuzzHardToGuessStringInSlice'
+! stdout 'randBytes verbose'
+stderr 'workers: \d+, corpus: .* crashers: [^0]'
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzHardToGuessStringInSlice/corpus
+
+# Verify with no fzgo cache that we build the instrumented binary from scratch.
 # This also creates our corpus directory in the default location.
-fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -fuzztime=5s
+# We also specify -parallel=1 to reduce CPU usage for our remaining tests.
+fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -parallel=1 -fuzztime=5s
 stdout 'building instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzWithBasicTypes/corpus
 
-# Second fuzz test: now we use the fzgo cache.
+# Verify we now we use the fzgo cache.
 # We also specify -parallel=1 to reduce CPU usage for our remaining tests.
 fzgo test -fuzz=FuzzWithBasicTypes example.com/richsignatures -parallel=1 -fuzztime=5s
 stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
@@ -43,26 +71,27 @@ stdout 'fzgo: using cached instrumented binary for pkgname.FuzzWithBasicTypes'
 stderr 'workers: \d+, corpus: '
 exists $WORK/myfuzzdir/example.com/richsignatures/FuzzWithBasicTypes/corpus
 
-# Uncomment this next line if you don't want to rely on goimports
-# [!exec:goimports] stop 'skipping remaining step that currently relies on goimports being in the path'
-
-# Make sure goimports can be executed. 
-! exec goimports -h
-stderr 'goimports'
-
 # Check rich signature from stdlib (uses regexp)
-# This currently relies on goimports being in the path.
 fzgo test -fuzz=FuzzWithStdlibType example.com/richsignatures -parallel=1 -fuzztime=5s
 stdout 'building instrumented binary for pkgname.FuzzWithStdlibType'
 stderr 'workers: \d+, corpus: '
 exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzWithStdlibType/corpus
 
-# Check we can get a crasher relatively quickly by finding a 64 bit int via a rich signature, which
-# should imply go-fuzz literal injection is working end-to-end with fzgo's rich signatures.
-fzgo test -fuzz=FuzzHardToGuessNumber example.com/richsignatures -parallel=1 -fuzztime=10s
-stdout 'building instrumented binary for pkgname.FuzzHardToGuessNumber'
-stderr 'workers: \d+, corpus: .* crashers: [^0]'
-exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzHardToGuessNumber/corpus
+# Verify we can use -run flag to select a specific file from the corpus for a rich signature.
+# We will guess that we have a zero length file. (Probably it will consistently be there, but we'll see).
+# This relies on go-fuzz SHA256 calc being stable.
+# We are not time limiting this, so this also relies on us interpreting -run to mean verify corpus
+# (otherwise, this will never return until the testscript package times out at 10 minutes or so).
+fzgo test -v -run=TestCorpus/da39a3ee5e6b4 -fuzz=FuzzHardToGuessNumber example.com/richsignatures
+stdout '=== RUN   TestCorpus/da39a3ee5e6b4'
+stdout '--- PASS: TestCorpus/da39a3ee5e6b4'
+stdout '^ok .*fzgo-verify-corpus'
+
+# Check a signature that almost matches a plain 'func([]byte) int' signature.
+fzgo test -fuzz=FuzzAlmostPlain example.com/richsignatures -parallel=1 -fuzztime=5s
+stdout 'detected rich signature for pkgname.FuzzAlmostPlain'
+stdout 'building instrumented binary for pkgname.FuzzAlmostPlain'
+stderr 'workers: \d+, corpus: .*'
 
 # NOTE: currently this is cloned from examples dir in fzgo repo. (Probably good to have locally here?)
 
@@ -115,11 +144,26 @@ func FuzzWithTargetType(e ExampleType) {
 
 }
 
+// FuzzAlmostPlain excercises our rich sig detection logic slightly more as a "near miss" to an older-style sig.
+func FuzzAlmostPlain(data []byte) string {
+	return ""
+}
+
 // FuzzHardToGuessNumber is a sanity check that go-fuzz literal injection seems to be working end-to-end.
 // This is typically found within a few seconds when properly hooked up.
 func FuzzHardToGuessNumber(guessMe int64) {
 
 	if guessMe == 0x123456789 {
+		panic("bingo")
+	}
+}
+
+// FuzzHardToGuessStringInSlice is harder to get right, and relies on fzgo's approach
+// to deserializing working well with go-fuzz sonar's approach for variable length strings.
+// This is typically found within a few seconds when working properly.
+// Note: the string length should <= 20 to work with sonar.
+func FuzzHardToGuessStringInSlice(list []string) {
+	if len(list) > 0 && list[0] == "ZZZ hard to guess" {
 		panic("bingo")
 	}
 }

@@ -3,14 +3,14 @@ package fuzz
 import (
 	"bytes"
 	"fmt"
-	"go/build"
 	"go/types"
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/imports"
 )
 
 // richsig enables fuzzing of rich function signatures with fzgo and dvyukov/go-fuzz beyond
@@ -55,7 +55,8 @@ func IsPlainSig(f *types.Func) (bool, error) {
 
 // CreateRichSigWrapper creates a temp working directory, then
 // creates a rich signature wrapping fuzz function.
-func CreateRichSigWrapper(function Func) (t Target, err error) {
+// Important: don't set printArgs=true when actually fuzzing. (Likely bad for perf, though not yet attempted).
+func CreateRichSigWrapper(function Func, printArgs bool) (t Target, err error) {
 	report := func(err error) (Target, error) {
 		return Target{}, fmt.Errorf("creating wrapper function for %s: %v", function.FuzzName(), err)
 	}
@@ -78,14 +79,12 @@ func CreateRichSigWrapper(function Func) (t Target, err error) {
 		return report(fmt.Errorf("failed to create gopath/src in temp dir: %v", err))
 	}
 
-	origGp := os.Getenv("GOPATH")
-	if origGp == "" {
-		origGp = build.Default.GOPATH
-	}
+	origGp := Gopath()
 	gp := strings.Join([]string{origGp, filepath.Join(tempDir, "gopath")},
 		string(os.PathListSeparator))
 
-	// cd to our temp dir to simplify invoking 'go test'
+	// cd to our temp dir to simplify things when we indirectly invoke the
+	// 'go' command (e.g., when searching for funcs below).
 	oldWd, err := os.Getwd()
 	if err != nil {
 		return report(err)
@@ -96,33 +95,33 @@ func CreateRichSigWrapper(function Func) (t Target, err error) {
 	}
 	defer func() { os.Chdir(oldWd) }()
 
-	// write out temporary richsigwrapper.go file
+	// create our temporary richsigwrapper.go file
 	var b bytes.Buffer
-	err = createWrapper(&b, function)
+	err = createWrapper(&b, function, printArgs)
 	if err != nil {
 		return report(fmt.Errorf("failed constructing rich signature wrapper: %v", err))
 	}
-	err = ioutil.WriteFile(filepath.Join(wrapperDir, "richsigwrapper.go"), b.Bytes(), 0700)
+
+	// fix up any needed imports.
+	out, err := imports.Process("richsigwrapper.go", b.Bytes(), nil)
+	if err != nil {
+		return report(fmt.Errorf("failed adjusting imports: %v", err))
+	}
+
+	err = ioutil.WriteFile(filepath.Join(wrapperDir, "richsigwrapper.go"), out, 0700)
 	if err != nil {
 		return report(fmt.Errorf("failed to create temporary richsigwrapper.go: %v", err))
 	}
 
-	// If Env contains duplicate environment keys for GOPATH, only the last
-	// value in the slice for each duplicate key is used.
+	// Create an env map to include our temporary gopath.
+	// (If env contains duplicate environment keys for GOPATH, only the last value is used).
 	env := append(os.Environ(), "GOPATH="+gp)
-
-	// TODO: stop invoking goimports? maybe this is a temp hack, or maybe this is a convient way to get what we want for now...
-	if _, err := exec.LookPath("goimports"); err == nil {
-		err = execCmd("goimports", []string{"-w", "richsigwrapper.go"}, env, 0)
-		if err != nil {
-			return report(fmt.Errorf("failed invoking goimports for rich signature: %v", err))
-		}
-	}
 
 	// TODO: ##################################################################################
 	// TODO: ###########  resume finishing up here, also fuzz.Instrument, fuzz.Start ##########
 	// TODO: ##################################################################################
 
+	// Re-use our fuzz.FindFunc to find the newly created wrapper.
 	// Note: pkg patterns like 'fzgo/...' and 'fzgo/richsigwrapper' don't seem to work, but '.' does.
 	// (We cd'ed above to the working directory. Maybe a go/packages bug, not liking >1 GOPATH entry?)
 	functions, err := FindFunc(".", "FuzzRichSigWrapper", env, false)
@@ -130,6 +129,13 @@ func CreateRichSigWrapper(function Func) (t Target, err error) {
 		return report(fmt.Errorf("failed to find wrapper func in temp gopath: %v", err))
 	}
 
+	// Pull together everything we need about our wrapper into a Target.
+	// This will be the actual target for go-fuzz-build and go-fuzz,
+	// though we track the user's original function so we can send
+	// the output to the proper location under the original location if requested,
+	// and use the original path for cache computation,
+	// as well as show friendly names and more generally mask from the user that
+	// we created  a temporary wrapper.
 	target := Target{
 		UserFunc:       function,
 		hasWrapper:     true,
@@ -141,7 +147,7 @@ func CreateRichSigWrapper(function Func) (t Target, err error) {
 	return target, nil
 }
 
-func createWrapper(w io.Writer, function Func) error {
+func createWrapper(w io.Writer, function Func, printArgs bool) error {
 	f := function.TypesFunc
 	sig, ok := f.Type().(*types.Signature)
 	if !ok {
@@ -183,7 +189,12 @@ func fuzzOne (fuzzer *randparam.Fuzzer) {
 
 		typeStringWithSelector := types.TypeString(v.Type(), externalQualifier)
 		fmt.Fprintf(w, "\tvar %s %s\n", v.Name(), typeStringWithSelector)
-		fmt.Fprintf(w, "\tfuzzer.Fuzz(&%s)\n\n", v.Name())
+		fmt.Fprintf(w, "\tfuzzer.Fuzz(&%s)\n", v.Name())
+		if printArgs {
+			fmt.Fprintf(w, "\tfmt.Printf(\"               arg %d:     %%#v\\n\", %s)\n",
+				i+1, v.Name())
+		}
+		fmt.Fprintf(w, "\n")
 	}
 
 	// emit the call to the wrapped function
