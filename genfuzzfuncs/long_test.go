@@ -1,3 +1,5 @@
+// +build go1.13
+
 package main
 
 import (
@@ -9,7 +11,9 @@ import (
 
 func TestStrings(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping test in short mode.")
+		// TODO: probably remove this test at some point?
+		// It is long, and sensitive to changes in stdlib strings pkg.
+		t.Skip("skipping test in short mode. also, currently relies on Go >= 1.13")
 	}
 	tests := []struct {
 		name               string
@@ -289,6 +293,10 @@ func Fuzz_ToUpper(s string) {
 
 func Fuzz_ToUpperSpecial(c unicode.SpecialCase, s string) {
 	strings.ToUpperSpecial(c, s)
+}
+
+func Fuzz_ToValidUTF8(s string, replacement string) {
+	strings.ToValidUTF8(s, replacement)
 }
 
 func Fuzz_Trim(s string, cutset string) {
@@ -593,6 +601,10 @@ func Fuzz_ToUpper(s string) {
 
 func Fuzz_ToUpperSpecial(c unicode.SpecialCase, s string) {
 	ToUpperSpecial(c, s)
+}
+
+func Fuzz_ToValidUTF8(s string, replacement string) {
+	ToValidUTF8(s, replacement)
 }
 
 func Fuzz_Trim(s string, cutset string) {
@@ -919,6 +931,10 @@ func Fuzz_ToUpper(s string) {
 
 func Fuzz_ToUpperSpecial(c unicode.SpecialCase, s string) {
 	strings.ToUpperSpecial(c, s)
+}
+
+func Fuzz_ToValidUTF8(s string, replacement string) {
+	strings.ToValidUTF8(s, replacement)
 }
 
 func Fuzz_Trim(s string, cutset string) {
