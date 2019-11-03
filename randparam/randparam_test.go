@@ -83,7 +83,7 @@ func TestFuzzingParams(t *testing.T) {
 	})
 
 	t.Run("string - two strings", func(t *testing.T) {
-		input := append([]byte{0x0, 0x1, 0x42, 0x2, 0x43, 0x44})
+		input := []byte{0x0, 0x1, 0x42, 0x2, 0x43, 0x44}
 		want1 := string([]byte{0x42})
 		want2 := string([]byte{0x43, 0x44})
 
@@ -101,7 +101,7 @@ func TestFuzzingParams(t *testing.T) {
 	})
 
 	t.Run("string - exactly run out of bytes", func(t *testing.T) {
-		input := append([]byte{0x0, 0x1, 0x42})
+		input := []byte{0x0, 0x1, 0x42}
 		want1 := string([]byte{0x42})
 		want2 := ""
 

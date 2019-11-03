@@ -75,16 +75,16 @@ func NewFuzzer(data []byte) *Fuzzer {
 	// the need to better tune the exact string/[]byte encoding to work
 	// better with sonar.
 
-	// TODO: consider using the first byte for meta parameters, such as:
+	// TODO: consider if we want to use the first byte for meta parameters.
 	firstByte := fzgoSrc.Byte()
 	switch {
 	case firstByte < 32:
 		gofuzzFuzzer.NilChance(0).NumElements(2, 2)
 	case firstByte < 64:
 		gofuzzFuzzer.NilChance(0).NumElements(1, 1)
-	case firstByte < 64+32:
+	case firstByte < 96:
 		gofuzzFuzzer.NilChance(0).NumElements(3, 3)
-	case firstByte < 64+64:
+	case firstByte < 128:
 		gofuzzFuzzer.NilChance(0).NumElements(4, 4)
 	case firstByte <= 255:
 		gofuzzFuzzer.NilChance(0.1).NumElements(0, 10)
@@ -257,8 +257,10 @@ func randString(s *string, c gofuzz.Continue, fzgoSrc *randSource) {
 	*s = string(bs)
 }
 
+// TODO: this might be temporary. Here we handle slices of strings as a preview of
+// improvements we might get by dropping google/gofuzz for walking some of the data structures.
 func randStringSlice(s *[]string, c gofuzz.Continue, fzgoSrc *randSource) {
-	size, ok := sz(fzgoSrc)
+	size, ok := calcSize(fzgoSrc)
 	if !ok {
 		*s = nil
 		return
@@ -272,7 +274,8 @@ func randStringSlice(s *[]string, c gofuzz.Continue, fzgoSrc *randSource) {
 	*s = ss
 }
 
-func sz(fzgoSrc *randSource) (size int, ok bool) {
+// TODO: temporarily extracted this from randBytes. Decide to drop vs. keep/unify.
+func calcSize(fzgoSrc *randSource) (size int, ok bool) {
 	verbose := false // TODO: probably remove eventually.
 
 	// try to find a size field.
@@ -345,7 +348,7 @@ func sz(fzgoSrc *randSource) (size int, ok bool) {
 // and we draw zeros for say a uint32, the result is 1; sonar
 // seems to guess the length of numeric values, so it likely
 // works end to end even if we draw zeros.
-// TODO: The next bytes appended (via some mutation) for an number will change
+// TODO: The next bytes appended (via some mutation) after a number can change
 // the result (e.g., if a 0x2 is appended in example above, result is no longer 1),
 // so maybe better to also not draw zeros for numeric values?
 
@@ -406,7 +409,6 @@ func randRune(val *rune, c gofuzz.Continue) {
 }
 
 // Note: complex64, complex128, uintptr are not supported by google/gofuzz, I think.
-// Interfaces are also not currently supported by google/gofuzz, or at least not
-// easily as far as I am aware. Might be able to get it to work with custom
-// functions, such as:
-//   func randIoWriter(val *io.Writer, c gofuzz.Continue) {
+// TODO: Interfaces are also not currently supported by google/gofuzz, or at least not
+// easily as far as I am aware. That said, currently have most of the pieces elsewhere
+// for us to handle common interfaces like io.Writer, io.Reader, etc.

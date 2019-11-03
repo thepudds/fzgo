@@ -50,7 +50,7 @@ should usaully be able to do so.
 func main() {
 	// handle flags
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, Usage)
+		fmt.Fprint(os.Stderr, Usage)
 		flag.PrintDefaults()
 	}
 	pkgFlag := flag.String("pkg", ".", "package pattern, defaults to current package")

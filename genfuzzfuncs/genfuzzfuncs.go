@@ -293,13 +293,13 @@ func emitArgs(w io.Writer, sig *types.Signature, localPkg *types.Package, allWra
 		v := sig.Params().At(i)
 		paramName := avoidCollision(v, i, localPkg, allWrapperParams)
 		if i > 0 {
-			fmt.Fprintf(w, ", ")
+			fmt.Fprint(w, ", ")
 		}
-		fmt.Fprintf(w, paramName)
+		fmt.Fprint(w, paramName)
 	}
 	if sig.Variadic() {
 		// last argument needs an elipsis
-		fmt.Fprintf(w, "...")
+		fmt.Fprint(w, "...")
 	}
 }
 
