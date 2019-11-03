@@ -73,11 +73,11 @@ in your path environment variable.
 This is a very early and very simple prototype. Don't expect great things.  ;-)
 
 Testing is primarily done with the nice internal `testscripts` package used by the core Go team to test the `go` tool
-and nicely extracted at [rogpeppe/go-internal/testscript](https://github.com/rogpeppe/go-internal/tree/master/testscript).
+and extracted at [rogpeppe/go-internal/testscript](https://github.com/rogpeppe/go-internal/tree/master/testscript).
 
 #### Changes from the proposal document
 
-Three changes between the current fzgo prototype vs. the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008):
+The primary changes between the current fzgo prototype vs. the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008):
 
 1. fzgo supports rich signatures.
 2. The corpus location does not default to `<pkgpath>/testdata/fuzz`, but instead follows the approach outlined [here](https://groups.google.com/d/msg/golang-fuzzing-proposal/WVyRXx7AsO4/CXzvbMT1CgAJ) and more precisely described in [PR #7](https://github.com/thepudds/fzgo/pull/7).
@@ -92,17 +92,17 @@ uses `GOPATH/pkg/fuzz/GOOS_GOARCH/`.
 way of controlling when to stop fuzzing. The proposal document does not include `-fuzztime` and `go-fuzz` 
 does not support it, but it seems useful in general and `-fuzztime` is in the prototype (and it proved 
 useful while testing the prototype). This might be removed later.
+7. For experimentation, `FZGOFLAGSBUILD` and `FZGOFLAGSFUZZ` environmental variables can optionally contain a space-separated list of arguments to pass to `go-fuzz-build` and `go-fuzz`, respectively.
 
 #### Pieces of proposal document not implemented in this prototype
 
-* New signature for fuzzing function.
+* `fuzz.F` or `testing.F` signature for fuzzing function.
 * Allowing fuzzing functions to reside in `*_test.go` files.
 * Anything to do with deeper integration with the compiler for more robust instrumentation. This
 prototype is not focused on that area.
-* `-fuzzminimize`, `-coverprofile`.
-* Any of a much larger set of preexisting build flags like `-ldflags`.
-* Other items covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008), 
-especially in areas outside of the direct user-facing behavior that this prototype focuses on. That said, the majority of user-facing behavior mentioned in the proposal document is either implemented in the prototype or explicitly mentioned in this list as not implemented.
+* Any of a much larger set of preexisting build flags like `-ldflags`, `-coverprofile`.
+* Areas covered in the March 2017 [proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008), 
+outside of the direct user-facing behavior that this prototype focuses on. That said, the majority of user-facing behavior mentioned in the proposal document is either implemented in the prototype or explicitly mentioned in this list as not implemented.
 
 The argument parsing in 'go test' is bespoke, and the argument parsing in `fzgo` is an approximation of that.
 That might be OK for an early prototype. The right thing to do might be to extract 

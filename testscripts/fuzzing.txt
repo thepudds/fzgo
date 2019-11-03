@@ -93,6 +93,22 @@ fzgo test -fuzz FuzzTime example.com/pkg1 -fuzztime=5s -parallel=1 -v
 stdout 'fzgo: using cached instrumented binary for pkg1.FuzzTime'
 stderr 'workers: 1, corpus: '
 
+# FZGOFLAGSBUILD env var passes extra args to go-fuzz-build
+env FZGOFLAGSBUILD=-foo=bar
+! fzgo test -fuzz=FuzzTwo example.com/pkg2 -fuzztime=5s -parallel=1
+stderr 'flag provided but not defined: -foo'
+stderr 'Usage of go-fuzz-build:'
+! stderr 'workers: 1, corpus: '
+env FZGOFLAGSBUILD=
+
+# FZGOFLAGSFUZZ env var passes extra args to go-fuzz-build
+env FZGOFLAGSFUZZ=-bar=foo
+! fzgo test -fuzz=FuzzTwo example.com/pkg2 -fuzztime=5s -parallel=1
+stderr 'flag provided but not defined: -bar'
+stderr 'Usage of go-fuzz:'
+! stderr 'workers: 1, corpus: '
+env FZGOFLAGSFUZZ=
+
 # Two test files, with three fuzz funcs. The same test files are used in the package_patterns.txt test script.
 # One file uses '+build fuzz', the other '+build gofuzz'.
 
