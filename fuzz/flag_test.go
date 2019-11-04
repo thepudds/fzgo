@@ -21,7 +21,7 @@ func TestParseArgs(t *testing.T) {
 		{"flag with test. prefix", "-test.fuzz fuzzfunc", "fuzzfunc", ".", false},
 
 		{"one package", "-fuzz=fuzzfunc sample/pkg", "fuzzfunc", "sample/pkg", false},
-		{"two packages in a row", "-fuzz=fuzzfunc sample/pkg1 sample/pkg2", "", "", true},
+		{"two packages in a row", "-fuzz=fuzzfunc sample/pkg1 sample/pkg2", "fuzzfunc", "sample/pkg1 sample/pkg2", false},
 		{"two packages separated by flag", "sample/pkg1 -fuzz=fuzzfunc sample/pkg2", "fuzzfunc", "", true},
 
 		{"incompatible test flag", "-fuzz=fuzzfunc -benchtime=10s", "", "", true},

@@ -40,7 +40,7 @@ func (f *Func) String() string {
 // The March 2017 proposal document https://github.com/golang/go/issues/19109#issuecomment-285456008
 // suggests not allowing something like 'go test -fuzz=. ./...' to match multiple fuzz functions.
 // As an experiment, allowMultiFuzz flag allows that.
-// FindFunc searches for a requested function to visit.
+// FindFunc also allows for multiple packages in pkgPattern separated by whitespace.
 func FindFunc(pkgPattern, funcPattern string, env []string, allowMultiFuzz bool) ([]Func, error) {
 	report := func(err error) error {
 		return fmt.Errorf("error while loading packages for pattern %v: %v", pkgPattern, err)
@@ -56,7 +56,7 @@ func FindFunc(pkgPattern, funcPattern string, env []string, allowMultiFuzz bool)
 	if len(env) > 0 {
 		cfg.Env = env
 	}
-	pkgs, err := packages.Load(cfg, pkgPattern)
+	pkgs, err := packages.Load(cfg, strings.Fields(pkgPattern)...)
 	if err != nil {
 		return nil, report(err)
 	}

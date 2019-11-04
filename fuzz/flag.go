@@ -123,12 +123,10 @@ func ParseArgs(args []string, fs *flag.FlagSet) (string, error) {
 		return "", report(err)
 	}
 	var pkgPattern string
-	if len(pkgPatterns) > 1 {
-		return "", fmt.Errorf("more than one package pattern not allowed: %q", pkgPatterns)
-	} else if len(pkgPatterns) == 0 {
+	if len(pkgPatterns) == 0 {
 		pkgPattern = "."
 	} else {
-		pkgPattern = pkgPatterns[0]
+		pkgPattern = strings.Join(pkgPatterns, " ")
 	}
 
 	// fourth, we now have a clean set of arguments that we can
