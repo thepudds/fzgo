@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -73,28 +74,29 @@ func Instrument(function Func, verbose bool) (Target, error) {
 		return report(fmt.Errorf("zip path failed: %v", err))
 	}
 	if _, err = os.Stat(finalZipPath); os.IsNotExist(err) {
-		// TODO: resume here ###########################################################################
-		// clean up the functions running around. switch to target.
-		// also, delete the temp dir. probably with a defer just after target returns successfully
 		info("building instrumented binary for %v.%v", function.PkgName, function.FuncName)
 		outFile := filepath.Join(cacheDir, "fuzz.zip.partial")
-		var args []string
+
+		// to support experimentation, initial args for go-fuzz-build are
+		// populated by the optional FZGOFLAGSBUILD env var
+		// (or an empty slice if FZGOFLAGSBUILD is not set).
+		args := fzgoEnvFlags("FZGOFLAGSBUILD")
 		if !target.hasWrapper {
-			args = []string{
-				"-func=" + target.UserFunc.FuncName,
-				"-o=" + outFile,
+			args = append(args,
+				"-func="+target.UserFunc.FuncName,
+				"-o="+outFile,
 				// "-race", // TODO: make a flag
 				buildTagsArg,
 				target.UserFunc.PkgPath,
-			}
+			)
 		} else {
-			args = []string{
-				"-func=" + target.wrapperFunc.FuncName,
-				"-o=" + outFile,
+			args = append(args,
+				"-func="+target.wrapperFunc.FuncName,
+				"-o="+outFile,
 				// "-race", // TODO: make a flag
 				buildTagsArg,
 				target.wrapperFunc.PkgPath,
-			}
+			)
 		}
 
 		err = execCmd("go-fuzz-build", args, target.wrapperEnv, 0)
@@ -145,13 +147,17 @@ func Start(target Target, workDir string, maxDuration time.Duration, parallel in
 		return report(fmt.Errorf("zip path failed: %v", err))
 	}
 
-	runArgs := []string{
+	// to support experimentation, initial args for go-fuzz are
+	// populated by the optional FZGOFLAGSFUZZ env var
+	// (or an empty slice if FZGOFLAGSFUZZ is not set).
+	runArgs := fzgoEnvFlags("FZGOFLAGSFUZZ")
+	runArgs = append(runArgs,
 		fmt.Sprintf("-bin=%s", zipPath),
 		fmt.Sprintf("-workdir=%s", workDir),
 		fmt.Sprintf("-procs=%d", parallel),
 		fmt.Sprintf("-timeout=%d", int(funcTimeout.Seconds())), // this is not total run time
 		fmt.Sprintf("-v=%d", verboseLevel),
-	}
+	)
 	err = execCmd("go-fuzz", runArgs, nil, maxDuration)
 	if err != nil {
 		return report(err)
@@ -282,6 +288,13 @@ func checkGoFuzz() error {
 	return nil
 }
 
+// fzgoEnvFlags gets any whitespace-separated arguments
+// in the named environment variable (e.g., FZGOFLAGSBUILD).
+func fzgoEnvFlags(name string) []string {
+	val := os.Getenv(name)
+	return strings.Fields(val)
+}
+
 func info(s string, args ...interface{}) {
 	// Related comment from https://golang.org/cmd/go/#hdr-Test_packages
 	//    All test output and summary lines are printed to the go command's standard output,
@@ -289,5 +302,3 @@ func info(s string, args ...interface{}) {
 	//    (The go command's standard error is reserved for printing errors building the tests.)
 	fmt.Println("fzgo:", fmt.Sprintf(s, args...))
 }
-
-
