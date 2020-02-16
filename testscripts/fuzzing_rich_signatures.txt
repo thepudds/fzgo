@@ -13,6 +13,9 @@
 go get -v -u github.com/thepudds/fzgo/randparam
 go get -v -u github.com/google/gofuzz
 
+# TODO: at some point between 2019-11-03 and 2020-02-15, this became a needed workaround.
+go get -v -u golang.org/x/mod/...
+
 # Get go-fuzz (go-fuzz-dep needed by go-fuzz-build).
 go get -v -u github.com/dvyukov/go-fuzz/...
 go install github.com/dvyukov/go-fuzz/...
