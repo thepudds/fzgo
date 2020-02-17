@@ -3,6 +3,8 @@
 
 ## fzgo: go-fuzz + 'go test' = fewer bugs
 
+If you are not familiar with fuzzing, this [motivation](http://tiny.cc/why-go-fuzz) document provides a quick 1-page introduction.
+
 `fzgo` is a prototype of [golang/go#19109](https://golang.org/issue/19109) **"cmd/go: make fuzzing a first class citizen, like tests or benchmarks"**.
 
 `fzgo` supports some conveniences like fuzzing rich signatures and auto-generation of fuzzing functions.
