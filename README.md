@@ -1,8 +1,12 @@
 [![Build Status](https://travis-ci.org/thepudds/fzgo.svg?branch=master)](https://travis-ci.org/thepudds/fzgo)
 
-## fzgo: simple prototype of integrating go-fuzz with 'go test'
+## fzgo: go-fuzz + 'go test' = fewer bugs
 
-fzgo is a simple initial prototype of integrating [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
+`fzgo` is a prototype of [golang/go#19109 "cmd/go: make fuzzing a first class citizen, like tests or benchmarks".](https://golang.org/issue/19109)
+
+`fzgo` supports some conveniences like fuzzing rich signatures and experimental auto-generation of fuzzing functions.
+
+`fzgo` integrates [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
 into `go test`, with the heavy lifting being done by `go-fuzz`, `go-fuzz-build`, and the `go` tool. The focus 
 is on step 1 of a tentative list of "Draft goals for a prototype" outlined in [this
 comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#19109](https://golang.org/issue/19109):
@@ -10,8 +14,10 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
    _Step 1. Prototype proposed CLI, including interaction with existing 'go test'._
  
 `fzgo` supports the `-fuzz` flag and several other related flags proposed in the March 2017 
-[proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
+[#19109 proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
 such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
+
+### Features
 
 * Rich signatures like `FuzzRegexp(re string, input []byte, posix bool)` are supported, as well as the classic `Fuzz(data []byte) int` form used by `go-fuzz`. 
 * The corpus is automatically used as deterministic input to unit tests when running a normal `go test`. 
@@ -21,6 +27,7 @@ such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapp
 * The fuzzing corpus defaults to `GOPATH/pkg/fuzz/corpus`. 
 * The `-fuzzdir=/some/path` flag allows the corpus to be stored elsewhere (e.g., a separate corpus repo); `-fuzzdir=testdata` stores the corpus under `<pkgpath>/testdata/fuzz/fuzzname` (hence typically in VCS with the code under test).
 * `fuzz` and `gofuzz` build tags are allowed but not required.
+* An optional [genfuzzfuncs](https://github.com/thepudds/fzgo/blob/master/genfuzzfuncs/README.md) utility can automatically create fuzzing functions for all of the public functions and methods in a package of interest. This makes it quicker and easier to start fuzzing.
 
 ## Usage
 ```
@@ -58,7 +65,7 @@ The following flags work with 'fzgo test -fuzz':
 ## Install
 
 ```
-$ go get -u github.com/thepudds/fzgo
+$ go get -u github.com/thepudds/fzgo/...
 $ go get -u github.com/dvyukov/go-fuzz/...
 ```
 
@@ -68,9 +75,13 @@ the [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz#history-rewrite) repo.
 The `go-fuzz` source code must be in your GOPATH, and the `go-fuzz` and `go-fuzz-build` binaries must be 
 in your path environment variable.
 
+**Note**: Module-mode is not supported (#15), but you can fuzz a module with `fzgo` as long as the code under test is in GOPATH and you set `GO111MODULE=off` env variable.
+
 ## Status
 
-This is a very early and very simple prototype. Don't expect great things.  ;-)
+This is a simple prototype. Don't expect great things.  ;-)
+
+That said, there is reasonable test coverage and `fzgo` is hopefully beta quality. Automatically generating fuzz functions is implemented in a separate [genfuzzfuncs](https://github.com/thepudds/fzgo/blob/master/genfuzzfuncs/README.md) utility that is more alpha quality.
 
 Testing is primarily done with the nice internal `testscripts` package used by the core Go team to test the `go` tool
 and extracted at [rogpeppe/go-internal/testscript](https://github.com/rogpeppe/go-internal/tree/master/testscript).
