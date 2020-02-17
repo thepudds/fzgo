@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/thepudds/fzgo/randparam"
+	_ "github.com/thepudds/fzgo/randparam" // TODO: for now, force import to simplify install
 	"golang.org/x/tools/imports"
 )
 
