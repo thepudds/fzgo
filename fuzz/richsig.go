@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"golang.org/x/tools/imports"
+	_ "github.com/thepudds/fzgo/randparam"
 )
 
 // richsig enables fuzzing of rich function signatures with fzgo and dvyukov/go-fuzz beyond
