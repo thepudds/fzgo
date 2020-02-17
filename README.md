@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/thepudds/fzgo.svg?branch=master)](https://travis-ci.org/thepudds/fzgo)
+[![Build Status](https://travis-ci.org/thepudds/fzgo.svg?branch=master)](https://travis-ci.org/thepudds/fzgo) [![Go Report Card](https://goreportcard.com/badge/thepudds/fzgo)](https://goreportcard.com/report/thepudds/fzgo) 
 
 ## fzgo: go-fuzz + 'go test' = fewer bugs
 
