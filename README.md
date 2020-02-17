@@ -6,7 +6,7 @@
 
 `fzgo` supports some conveniences like fuzzing rich signatures and auto-generation of fuzzing functions.
 
-`fzgo` integrates [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
+The basic approach is that `fzgo` integrates [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
 into `go test`, with the heavy lifting being done by `go-fuzz`, `go-fuzz-build`, and the `go` tool. The focus 
 is on step 1 of a tentative list of "Draft goals for a prototype" outlined in [this
 comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#19109](https://golang.org/issue/19109):
