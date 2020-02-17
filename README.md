@@ -2,9 +2,9 @@
 
 ## fzgo: go-fuzz + 'go test' = fewer bugs
 
-`fzgo` is a prototype of [golang/go#19109 "cmd/go: make fuzzing a first class citizen, like tests or benchmarks".](https://golang.org/issue/19109)
+`fzgo` is a prototype of [golang/go#19109](https://golang.org/issue/19109) **"cmd/go: make fuzzing a first class citizen, like tests or benchmarks"**.
 
-`fzgo` supports some conveniences like fuzzing rich signatures and experimental auto-generation of fuzzing functions.
+`fzgo` supports some conveniences like fuzzing rich signatures and auto-generation of fuzzing functions.
 
 `fzgo` integrates [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz)
 into `go test`, with the heavy lifting being done by `go-fuzz`, `go-fuzz-build`, and the `go` tool. The focus 
@@ -16,6 +16,8 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
 `fzgo` supports the `-fuzz` flag and several other related flags proposed in the March 2017 
 [#19109 proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
 such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
+
+Any and all feedback is welcome!
 
 ### Features
 
@@ -75,7 +77,7 @@ the [dvyukov/go-fuzz](https://github.com/dvyukov/go-fuzz#history-rewrite) repo.
 The `go-fuzz` source code must be in your GOPATH, and the `go-fuzz` and `go-fuzz-build` binaries must be 
 in your path environment variable.
 
-**Note**: Module-mode is not supported (#15), but you can fuzz a module with `fzgo` as long as the code under test is in GOPATH and you set `GO111MODULE=off` env variable.
+**Note**: Module-mode is not supported ([#15](https://github.com/thepudds/fzgo/issues/15)), but you can fuzz a module with `fzgo` as long as the code under test is in GOPATH and you set `GO111MODULE=off` env variable.
 
 ## Status
 
