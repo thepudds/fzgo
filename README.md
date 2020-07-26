@@ -18,7 +18,7 @@ comment](https://github.com/golang/go/issues/19109#issuecomment-441442080) on [#
  
 `fzgo` supports the `-fuzz` flag and several other related flags proposed in the March 2017 
 [#19109 proposal document](https://github.com/golang/go/issues/19109#issuecomment-285456008). `fzgo` also supports typical `go` commands 
-such as `fzgo build`, `fgzo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
+such as `fzgo build`, `fzgo test`, or `fzgo env` (which are implemented by wrapping the `go` tool).
 
 Any and all feedback is welcome!
 
