@@ -9,6 +9,9 @@
 # across multiple packages. However, these tests were built before that change, 
 # so we use the -debug=nomultifuzz option below to preserve the original behavior.
 
+# Output the current env to help with any debugging (e.g., what is GO111MODULE)
+env
+
 # Fail when more than one fuzz func matches in two different packages.
 ! fzgo test -fuzz=FuzzTwo ./... -fuzztime=10s -debug=nomultifuzz
 stdout '^fzgo: multiple matches not allowed'
