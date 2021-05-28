@@ -1,5 +1,9 @@
 language: go
 
+# fzgo is not yet a proper module, including the tests would need to be updated.
+env:
+  - GO111MODULE=off
+  
 matrix:
   include:
     - os: linux
