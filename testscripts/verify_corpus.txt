@@ -7,6 +7,9 @@
 #     go test -run=TestScript/verify_corpus
 # (permuatations like -run=TestScript/corpus or -run=TestScript/.*corpus.* should also work)
 
+# Explicitly set GO111MODULE off for now. (testscripts seemingly by design do not pick up this value from actual env).
+env GO111MODULE=off
+
 # Download the FuzzTime example from the fzgo repo
 go get -v -u github.com/thepudds/fzgo/examples/...
 

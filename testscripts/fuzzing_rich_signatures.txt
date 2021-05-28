@@ -7,6 +7,9 @@
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
 
+# Explicitly set GO111MODULE off for now. (testscripts seemingly by design do not pick up this value from actual env).
+env GO111MODULE=off
+
 # get our dependencies. 
 # it should be sufficient to get fzgo/randparam, rather than fzgo/...
 # TODO: it would be better to use local copy. currently this gets the copy of fzgo/randparam from github.

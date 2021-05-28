@@ -11,6 +11,9 @@
 # Exit early if -short was specified.
 [short] skip 'skipping building instrumented binary because -short was specified'
 
+# Explicitly set GO111MODULE off for now. (testscripts seemingly by design do not pick up this value from actual env).
+env GO111MODULE=off
+
 # Get go-fuzz (go-fuzz-dep needed by go-fuzz-build).
 go get -v -u github.com/dvyukov/go-fuzz/...
 go install github.com/dvyukov/go-fuzz/...

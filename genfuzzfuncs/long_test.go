@@ -211,8 +211,8 @@ func Fuzz_IndexRune(s string, r rune) {
 	strings.IndexRune(s, r)
 }
 
-func Fuzz_Join(a []string, sep string) {
-	strings.Join(a, sep)
+func Fuzz_Join(elems []string, sep string) {
+	strings.Join(elems, sep)
 }
 
 func Fuzz_LastIndex(s string, substr string) {
@@ -519,8 +519,8 @@ func Fuzz_IndexRune(s string, r rune) {
 	IndexRune(s, r)
 }
 
-func Fuzz_Join(a []string, sep string) {
-	Join(a, sep)
+func Fuzz_Join(elems []string, sep string) {
+	Join(elems, sep)
 }
 
 func Fuzz_LastIndex(s string, substr string) {
@@ -849,8 +849,8 @@ func Fuzz_IndexRune(s string, r rune) {
 	strings.IndexRune(s, r)
 }
 
-func Fuzz_Join(a []string, sep string) {
-	strings.Join(a, sep)
+func Fuzz_Join(elems []string, sep string) {
+	strings.Join(elems, sep)
 }
 
 func Fuzz_LastIndex(s string, substr string) {
