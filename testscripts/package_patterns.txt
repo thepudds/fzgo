@@ -9,7 +9,7 @@
 # across multiple packages. However, these tests were built before that change, 
 # so we use the -debug=nomultifuzz option below to preserve the original behavior.
 
-# Output the current env to help with any debugging (e.g., what is GO111MODULE)
+# Explicitly set GO111MODULE off for now. (testscripts seemingly by design do not pick up this value from actual env).
 env GO111MODULE=off
 
 # Fail when more than one fuzz func matches in two different packages.
