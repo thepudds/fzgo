@@ -3,11 +3,7 @@ language: go
 # fzgo is not yet a proper module, including the tests would need to be updated.
 env:
   - GO111MODULE=off
-
-# Travis seems to have old ca-certificates or similar issue, or at least, git complains and fails...
-# Force more modern version of Ubuntu (Focal 20.04).
-dist: focal
-
+  
 matrix:
   include:
     - os: linux
@@ -26,6 +22,8 @@ matrix:
       go: "1.15.x"
 
 before_install:
+  # TODO: Sigh. Travis seems to have old ca-certificates or similar issue, or at least, git complains and fails...
+  - git config --global http.sslverify false
   - go get -v -u github.com/dvyukov/go-fuzz/...
   - go get -v -u golang.org/x/tools/cmd/goimports
 
