@@ -35,9 +35,9 @@ type ExportedInterface interface {
 }
 
 // FuncExportedUsesUnsupportedInterface is a test func to make sure
-// we don't emit a wrapper for functions that use supported interfaces
+// we don't emit a wrapper for functions that use unsupported interfaces.
 func FuncExportedUsesUnsupportedInterface(e ExportedInterface) {}
 
 // FuncExportedUsesSupportedInterface is a test func to make sure
-// we don't emit a wrapper for functions that use interfaces
+// we do emit a wrapper for functions that use supported interfaces.
 func FuncExportedUsesSupportedInterface(w io.Reader) {}
