@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -13,7 +12,7 @@ func TestStrings(t *testing.T) {
 	if testing.Short() {
 		// TODO: probably remove this test at some point?
 		// It is long, and sensitive to changes in stdlib strings pkg.
-		t.Skip("skipping test in short mode. also, currently relies on Go >= 1.13")
+		t.Skip("skipping test in short mode. also, currently relies on strings package from Go 1.13")
 	}
 	tests := []struct {
 		name               string
@@ -27,10 +26,13 @@ func TestStrings(t *testing.T) {
 			onlyExported:       true,
 			qualifyAll:         true,
 			insertConstructors: true,
-			want: `package stringsfuzz    // rename if needed
+			want: `package stringsfuzz // rename if needed
 
+// if needed, fill in imports or run 'goimports'
 import (
-	// fill in manually if needed, or run 'goimports'
+	"io"
+	"strings"
+	"unicode"
 )
 
 func Fuzz_Builder_Cap(b *strings.Builder) {
@@ -123,7 +125,7 @@ func Fuzz_Reader_ReadRune(s string) {
 
 func Fuzz_Reader_Reset(s1 string, s2 string) {
 	r := strings.NewReader(s1)
-	r.Reset(s1)
+	r.Reset(s2)
 }
 
 func Fuzz_Reader_Seek(s string, offset int64, whence int) {
@@ -146,14 +148,20 @@ func Fuzz_Reader_UnreadRune(s string) {
 	r.UnreadRune()
 }
 
-// skipping Fuzz_Reader_WriteTo because parameters include interfaces or funcs: io.Writer
+func Fuzz_Reader_WriteTo(s string, w io.Writer) {
+	r := strings.NewReader(s)
+	r.WriteTo(w)
+}
 
 func Fuzz_Replacer_Replace(oldnew []string, s string) {
 	r := strings.NewReplacer(oldnew...)
 	r.Replace(s)
 }
 
-// skipping Fuzz_Replacer_WriteString because parameters include interfaces or funcs: io.Writer
+func Fuzz_Replacer_WriteString(oldnew []string, w io.Writer, s string) {
+	r := strings.NewReplacer(oldnew...)
+	r.WriteString(w, s)
+}
 
 func Fuzz_Compare(a string, b string) {
 	strings.Compare(a, b)
@@ -328,7 +336,6 @@ func Fuzz_TrimSpace(s string) {
 func Fuzz_TrimSuffix(s string, suffix string) {
 	strings.TrimSuffix(s, suffix)
 }
-
 `},
 		{
 			name:               "strings: exported only, local pkg",
@@ -337,8 +344,10 @@ func Fuzz_TrimSuffix(s string, suffix string) {
 			insertConstructors: true,
 			want: `package strings
 
+// if needed, fill in imports or run 'goimports'
 import (
-	// fill in manually if needed, or run 'goimports'
+	"io"
+	"unicode"
 )
 
 func Fuzz_Builder_Cap(b *Builder) {
@@ -431,7 +440,7 @@ func Fuzz_Reader_ReadRune(s string) {
 
 func Fuzz_Reader_Reset(s1 string, s2 string) {
 	r := NewReader(s1)
-	r.Reset(s1)
+	r.Reset(s2)
 }
 
 func Fuzz_Reader_Seek(s string, offset int64, whence int) {
@@ -454,14 +463,20 @@ func Fuzz_Reader_UnreadRune(s string) {
 	r.UnreadRune()
 }
 
-// skipping Fuzz_Reader_WriteTo because parameters include interfaces or funcs: io.Writer
+func Fuzz_Reader_WriteTo(s string, w io.Writer) {
+	r := NewReader(s)
+	r.WriteTo(w)
+}
 
 func Fuzz_Replacer_Replace(oldnew []string, s string) {
 	r := NewReplacer(oldnew...)
 	r.Replace(s)
 }
 
-// skipping Fuzz_Replacer_WriteString because parameters include interfaces or funcs: io.Writer
+func Fuzz_Replacer_WriteString(oldnew []string, w io.Writer, s string) {
+	r := NewReplacer(oldnew...)
+	r.WriteString(w, s)
+}
 
 func Fuzz_Compare(a string, b string) {
 	Compare(a, b)
@@ -636,17 +651,19 @@ func Fuzz_TrimSpace(s string) {
 func Fuzz_TrimSuffix(s string, suffix string) {
 	TrimSuffix(s, suffix)
 }
-
 `},
 		{
 			name:               "strings: exported only, not local pkg, no constructors",
 			onlyExported:       true,
 			qualifyAll:         true,
 			insertConstructors: false,
-			want: `package stringsfuzz    // rename if needed
+			want: `package stringsfuzz // rename if needed
 
+// if needed, fill in imports or run 'goimports'
 import (
-	// fill in manually if needed, or run 'goimports'
+	"io"
+	"strings"
+	"unicode"
 )
 
 func Fuzz_Builder_Cap(b *strings.Builder) {
@@ -782,7 +799,12 @@ func Fuzz_Reader_UnreadRune(r *strings.Reader) {
 	r.UnreadRune()
 }
 
-// skipping Fuzz_Reader_WriteTo because parameters include interfaces or funcs: io.Writer
+func Fuzz_Reader_WriteTo(r *strings.Reader, w io.Writer) {
+	if r == nil {
+		return
+	}
+	r.WriteTo(w)
+}
 
 func Fuzz_Replacer_Replace(r *strings.Replacer, s string) {
 	if r == nil {
@@ -791,7 +813,12 @@ func Fuzz_Replacer_Replace(r *strings.Replacer, s string) {
 	r.Replace(s)
 }
 
-// skipping Fuzz_Replacer_WriteString because parameters include interfaces or funcs: io.Writer
+func Fuzz_Replacer_WriteString(r *strings.Replacer, w io.Writer, s string) {
+	if r == nil {
+		return
+	}
+	r.WriteString(w, s)
+}
 
 func Fuzz_Compare(a string, b string) {
 	strings.Compare(a, b)
@@ -966,11 +993,11 @@ func Fuzz_TrimSpace(s string) {
 func Fuzz_TrimSuffix(s string, suffix string) {
 	strings.TrimSuffix(s, suffix)
 }
-
 `},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pkgPattern := "strings"
@@ -983,22 +1010,20 @@ func Fuzz_TrimSuffix(s string, suffix string) {
 				t.Errorf("FindFuncfail() failed: %v", err)
 			}
 
-			var b bytes.Buffer
 			wrapperOpts := wrapperOptions{
 				qualifyAll:         tt.qualifyAll,
 				insertConstructors: tt.insertConstructors,
 				constructorPattern: "^New",
 			}
-			err = createWrappers(&b, pkgPattern, functions, wrapperOpts)
+			out, err := createWrappers(pkgPattern, functions, wrapperOpts)
 			if err != nil {
 				t.Errorf("createWrappers() failed: %v", err)
 			}
 
-			got := b.String()
+			got := string(out)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("createWrappers() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
-

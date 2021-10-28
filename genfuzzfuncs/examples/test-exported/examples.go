@@ -2,6 +2,8 @@ package fuzzwrapexamples
 
 import "io"
 
+// ---- Export examples/tests ----
+
 // FuncExported is a test function to make sure we emit exported functions.
 func FuncExported(i int)    {}
 func funcNotExported(i int) {}
@@ -21,15 +23,21 @@ func (t TypeExported) nonPointerRcvNotExportedMethod(i int) {}
 func (t *TypeExported) PointerExportedMethod(i int)         {}
 func (t TypeExported) NonPointerExportedMethod(i int)       {}
 
-var ExportedLiteral = func(i int) {}
-var notExportedLiteral = func(i int) {}
+var ExportedFuncVar = func(i int) {}
+var notExportedFuncVar = func(i int) {}
+
+// ---- Interface examples/tests ----
 
 // ExportedInterface is a test interface to make sure
-// we don't emit anything for functions in interfaces
+// we don't emit anything for the declaration of an interface.
 type ExportedInterface interface {
 	ExportedFunc()
 }
 
-// FuncExportedUsesInterface is a test func to make sure
-// we don't emit anything for functions that use interfaces
-func FuncExportedUsesInterface(w io.Reader) {}
+// FuncExportedUsesUnsupportedInterface is a test func to make sure
+// we don't emit a wrapper for functions that use unsupported interfaces.
+func FuncExportedUsesUnsupportedInterface(e ExportedInterface) {}
+
+// FuncExportedUsesSupportedInterface is a test func to make sure
+// we do emit a wrapper for functions that use supported interfaces.
+func FuncExportedUsesSupportedInterface(w io.Reader) {}

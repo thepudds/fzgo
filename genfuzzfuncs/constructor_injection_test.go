@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -25,11 +24,10 @@ func TestConstructorInjection(t *testing.T) {
 			onlyExported:       true,
 			qualifyAll:         true,
 			injectConstructors: true,
-			want: `package fuzzwrapexamplesfuzz    // rename if needed
+			want: `package fuzzwrapexamplesfuzz // rename if needed
 
-import (
-	// fill in manually if needed, or run 'goimports'
-)
+// if needed, fill in imports or run 'goimports'
+import "bufio"
 
 func Fuzz_A_PtrMethodNoArg(c int) {
 	r := fuzzwrapexamples.NewAPtr(c)
@@ -49,6 +47,19 @@ func Fuzz_B_PtrMethodNoArg(c int) {
 func Fuzz_B_PtrMethodWithArg(c int, i int) {
 	r := fuzzwrapexamples.NewBVal(c)
 	r.PtrMethodWithArg(i)
+}
+
+func Fuzz_Package_SetName(path string, n2 string, n3 string) {
+	pkg := fuzzwrapexamples.NewPackage(path, n2)
+	pkg.SetName(n3)
+}
+
+func Fuzz_Z_ReadLine(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	z1 := fuzzwrapexamples.NewZ(z)
+	z1.ReadLine()
 }
 
 func Fuzz_A_ValMethodNoArg(c int) {
@@ -79,6 +90,16 @@ func Fuzz_NewBVal(c int) {
 	fuzzwrapexamples.NewBVal(c)
 }
 
+func Fuzz_NewPackage(path string, name string) {
+	fuzzwrapexamples.NewPackage(path, name)
+}
+
+func Fuzz_NewZ(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	fuzzwrapexamples.NewZ(z)
+}
 `},
 		{
 			// this corresponds roughly to:
@@ -87,11 +108,10 @@ func Fuzz_NewBVal(c int) {
 			onlyExported:       true,
 			qualifyAll:         true,
 			injectConstructors: false,
-			want: `package fuzzwrapexamplesfuzz    // rename if needed
+			want: `package fuzzwrapexamplesfuzz // rename if needed
 
-import (
-	// fill in manually if needed, or run 'goimports'
-)
+// if needed, fill in imports or run 'goimports'
+import "bufio"
 
 func Fuzz_A_PtrMethodNoArg(r *fuzzwrapexamples.A) {
 	if r == nil {
@@ -121,6 +141,20 @@ func Fuzz_B_PtrMethodWithArg(r *fuzzwrapexamples.B, i int) {
 	r.PtrMethodWithArg(i)
 }
 
+func Fuzz_Package_SetName(pkg *fuzzwrapexamples.Package, name string) {
+	if pkg == nil {
+		return
+	}
+	pkg.SetName(name)
+}
+
+func Fuzz_Z_ReadLine(z *fuzzwrapexamples.Z) {
+	if z == nil {
+		return
+	}
+	z.ReadLine()
+}
+
 func Fuzz_A_ValMethodNoArg(r fuzzwrapexamples.A) {
 	r.ValMethodNoArg()
 }
@@ -145,6 +179,16 @@ func Fuzz_NewBVal(c int) {
 	fuzzwrapexamples.NewBVal(c)
 }
 
+func Fuzz_NewPackage(path string, name string) {
+	fuzzwrapexamples.NewPackage(path, name)
+}
+
+func Fuzz_NewZ(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	fuzzwrapexamples.NewZ(z)
+}
 `},
 		{
 			// this corresponds roughly to:
@@ -155,9 +199,8 @@ func Fuzz_NewBVal(c int) {
 			injectConstructors: true,
 			want: `package fuzzwrapexamples
 
-import (
-	// fill in manually if needed, or run 'goimports'
-)
+// if needed, fill in imports or run 'goimports'
+import "bufio"
 
 func Fuzz_A_PtrMethodNoArg(c int) {
 	r := NewAPtr(c)
@@ -177,6 +220,19 @@ func Fuzz_B_PtrMethodNoArg(c int) {
 func Fuzz_B_PtrMethodWithArg(c int, i int) {
 	r := NewBVal(c)
 	r.PtrMethodWithArg(i)
+}
+
+func Fuzz_Package_SetName(path string, n2 string, n3 string) {
+	pkg := NewPackage(path, n2)
+	pkg.SetName(n3)
+}
+
+func Fuzz_Z_ReadLine(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	z1 := NewZ(z)
+	z1.ReadLine()
 }
 
 func Fuzz_A_ValMethodNoArg(c int) {
@@ -207,6 +263,16 @@ func Fuzz_NewBVal(c int) {
 	NewBVal(c)
 }
 
+func Fuzz_NewPackage(path string, name string) {
+	NewPackage(path, name)
+}
+
+func Fuzz_NewZ(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	NewZ(z)
+}
 `},
 		{
 			// this corresponds roughly to:
@@ -217,9 +283,8 @@ func Fuzz_NewBVal(c int) {
 			injectConstructors: false,
 			want: `package fuzzwrapexamples
 
-import (
-	// fill in manually if needed, or run 'goimports'
-)
+// if needed, fill in imports or run 'goimports'
+import "bufio"
 
 func Fuzz_A_PtrMethodNoArg(r *A) {
 	if r == nil {
@@ -249,6 +314,20 @@ func Fuzz_B_PtrMethodWithArg(r *B, i int) {
 	r.PtrMethodWithArg(i)
 }
 
+func Fuzz_Package_SetName(pkg *Package, name string) {
+	if pkg == nil {
+		return
+	}
+	pkg.SetName(name)
+}
+
+func Fuzz_Z_ReadLine(z *Z) {
+	if z == nil {
+		return
+	}
+	z.ReadLine()
+}
+
 func Fuzz_A_ValMethodNoArg(r A) {
 	r.ValMethodNoArg()
 }
@@ -273,9 +352,20 @@ func Fuzz_NewBVal(c int) {
 	NewBVal(c)
 }
 
+func Fuzz_NewPackage(path string, name string) {
+	NewPackage(path, name)
+}
+
+func Fuzz_NewZ(z *bufio.Reader) {
+	if z == nil {
+		return
+	}
+	NewZ(z)
+}
 `},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pkgPattern := "github.com/thepudds/fzgo/genfuzzfuncs/examples/test-constructor-injection"
@@ -288,18 +378,17 @@ func Fuzz_NewBVal(c int) {
 				t.Errorf("FindFuncfail() failed: %v", err)
 			}
 
-			var b bytes.Buffer
 			wrapperOpts := wrapperOptions{
 				qualifyAll:         tt.qualifyAll,
 				insertConstructors: tt.injectConstructors,
 				constructorPattern: "^New",
 			}
-			err = createWrappers(&b, pkgPattern, functions, wrapperOpts)
+			out, err := createWrappers(pkgPattern, functions, wrapperOpts)
 			if err != nil {
 				t.Errorf("createWrappers() failed: %v", err)
 			}
 
-			got := b.String()
+			got := string(out)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("createWrappers() mismatch (-want +got):\n%s", diff)
 			}

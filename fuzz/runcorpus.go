@@ -1,11 +1,15 @@
 package fuzz
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"text/template"
 )
 
 // ErrGoTestFailed indicates that a 'go test' invocation failed,
@@ -21,6 +25,19 @@ var ErrGoTestFailed = errors.New("go test failed")
 // The names used with t.Run mean a 'fzgo test -run=TestCorpus/<corpus-file-name>' works.
 // One way to see the file names or otherwise verify execution is to run 'fzgo test -v <pkg>'.
 func VerifyCorpus(function Func, workDir string, run string, verbose bool) error {
+	corpusDir := filepath.Join(workDir, "corpus")
+	return verifyFiles(function, corpusDir, run, "TestCorpus", verbose)
+}
+
+// VerifyCrashers is similar to VerifyCorpus, but runs the crashers. It
+// can be useful to pass -v to what is causing a crash, such as 'fzgo test -v -fuzz=. -run=TestCrashers'
+func VerifyCrashers(function Func, workDir string, run string, verbose bool) error {
+	crashersDir := filepath.Join(workDir, "crashers")
+	return verifyFiles(function, crashersDir, run, "TestCrashers", verbose)
+}
+
+// verifyFiles implements the heart of VerifyCorpus and VerifyCrashers
+func verifyFiles(function Func, filesDir string, run string, testFunc string, verbose bool) error {
 	report := func(err error) error {
 		if err == ErrGoTestFailed {
 			return err
@@ -28,13 +45,56 @@ func VerifyCorpus(function Func, workDir string, run string, verbose bool) error
 		return fmt.Errorf("verify corpus for %s: %v", function.FuzzName(), err)
 	}
 
-	corpusDir := filepath.Join(workDir, "corpus")
-	if _, err := os.Stat(corpusDir); os.IsNotExist(err) {
+	if _, err := os.Stat(filesDir); os.IsNotExist(err) {
 		// No corpus to validate.
 		// TODO: a future real 'go test' invocation should be silent in this case,
 		// given the proposed intent is to always check for a corpus for normal 'go test' invocations.
 		// However, maybe fzgo should warn? or warn if -v is passed? or always be silent?
 		// Right now, main.go is making the decision to skip calling VerifyCorpus if workDir is not found.
+		return nil
+	}
+
+	// Check if we have a regex match for -run regexp for this testFunc
+	// TODO: add test for TestCorpus/fced9f7db3881a5250d7e287ab8c33f2952f0e99-8
+	//    cd fzgo/examples
+	//    fzgo test -fuzz=FuzzWithBasicTypes -run=TestCorpus/fced9f7db3881a5250d7e287ab8c33f2952f0e99-8 ./...  -v
+	// Doesn't print anything?
+	if run == "" {
+		report(fmt.Errorf("invalid empty run argument"))
+	}
+	runFields := strings.SplitN(run, "/", 2)
+	re1 := runFields[0]
+	ok, err := regexp.MatchString(re1, testFunc)
+	if err != nil {
+		report(fmt.Errorf("invalid regexp %q for -run: %v", run, err))
+	}
+	if !ok {
+		// Nothing to do. Return now to avoid 'go test' saying nothing to do.
+		return nil
+	}
+
+	// Do a light test to see if there are any files in the filesDir.
+	// This avoids 'go test' from reporting 'no tests' (and does not need to be perfect check).
+	re2 := "."
+	matchedFile := false
+	if len(runFields) > 1 {
+		re2 = runFields[1]
+	}
+	entries, err := ioutil.ReadDir(filesDir)
+	if err != nil {
+		report(err)
+	}
+	for i := range entries {
+		ok, err := regexp.MatchString(re2, entries[i].Name())
+		if err != nil {
+			report(fmt.Errorf("invalid regexp %q for -run: %v", run, err))
+		}
+		if ok {
+			matchedFile = true
+			break
+		}
+	}
+	if !matchedFile {
 		return nil
 	}
 
@@ -53,10 +113,8 @@ func VerifyCorpus(function Func, workDir string, run string, verbose bool) error
 		// create a wrapper function to handle the rich signature.
 		// if both -v and -run is set (presumaly to some corpus file),
 		// as a convinience also print the deserialized arguments
-		var printArgs bool
-		if verbose && run != "" {
-			printArgs = true
-		}
+		printArgs := verbose && run != ""
+
 		target, err = CreateRichSigWrapper(function, printArgs)
 		if err != nil {
 			return report(err)
@@ -69,12 +127,6 @@ func VerifyCorpus(function Func, workDir string, run string, verbose bool) error
 
 		// TODO: consider moving gopath setup into richsig, store on Target
 		// also set up a second entry in GOPATH to include our temporary directory containing the rich sig wrapper.
-		// origGp := Gopath()
-		// gp := strings.Join([]string{origGp, filepath.Join(target.wrapperTempDir, "gopath")},
-		// 	string(os.PathListSeparator))
-		// // Create an env map to include our temporary gopath.
-		// // (If env contains duplicate environment keys for GOPATH, only the last value is used).
-		// env = append(os.Environ(), "GOPATH="+gp)
 	}
 
 	// create temp dir to work in.
@@ -107,12 +159,22 @@ func VerifyCorpus(function Func, workDir string, run string, verbose bool) error
 		funcName = target.UserFunc.FuncName
 		env = nil
 	}
+
 	// write out temporary corpus_test.go file
-	src := fmt.Sprintf(corpusTestSrc,
-		pkgPath,
-		corpusDir,
-		funcName)
-	err = ioutil.WriteFile(filepath.Join(tempDir, "corpus_test.go"), []byte(src), 0700)
+	vals := map[string]string{"pkgPath": pkgPath, "filesDir": filesDir, "testFunc": testFunc, "funcName": funcName}
+	buf := new(bytes.Buffer)
+	if err := corpusTestSrc.Execute(buf, vals); err != nil {
+		report(fmt.Errorf("could not execute template: %v", err))
+	}
+	// return buf.Bytes()
+	// src := fmt.Sprintf(corpusTestSrc,
+	// 	pkgPath,
+	// 	filesDir,
+	// 	testFunc,
+	// 	testFunc,
+	// 	funcName)
+	// err = ioutil.WriteFile(filepath.Join(tempDir, "corpus_test.go"), []byte(src), 0700)
+	err = ioutil.WriteFile(filepath.Join(tempDir, "corpus_test.go"), buf.Bytes(), 0700)
 	if err != nil {
 		return report(fmt.Errorf("failed to create temporary corpus_test.go: %v", err))
 	}
@@ -154,21 +216,25 @@ func VerifyCorpus(function Func, workDir string, run string, verbose bool) error
 //        /tmp/gopath/src/github.com/dvyukov/go-fuzz-corpus/png/testdata/fuzz/png.Fuzz/corpus/
 //   3. the fuzz function name, such as:
 //        Fuzz
-var corpusTestSrc = `package corpustest
+var corpusTestSrc = template.Must(template.New("CorpusTest").Parse(`
+package corpustest
 
 import (
 	"io/ioutil"
 	"path/filepath"
+	{{if eq .testFunc "TestCrashers"}}
+	"strings"
+	{{end}}
 	"testing"
 
-	fuzzer "%s"
+	fuzzer "{{.pkgPath}}"
 )
 
-var corpusPath = ` + "`%s`" + `
+var corpusPath = ` + "`{{.filesDir}}`" + `
 
-// TestCorpus executes a fuzzing function against each file in a corpus directory
+// %s executes a fuzzing function against each file in a corpus directory
 // as subtests.
-func TestCorpus(t *testing.T) {
+func {{.testFunc}}(t *testing.T) {
 
 	files, err := ioutil.ReadDir(corpusPath)
 	if err != nil {
@@ -179,14 +245,22 @@ func TestCorpus(t *testing.T) {
 		if file.IsDir() {
 			continue
 		}
+
+		{{if eq .testFunc "TestCrashers"}}
+		// exclude auxillary files that reside in the crashers directory.
+		if strings.HasSuffix(file.Name(), ".output") || strings.HasSuffix(file.Name(), ".quoted") {
+			continue
+		}
+		{{end}}
+
 		t.Run(file.Name(), func(t *testing.T) {
 			dat, err := ioutil.ReadFile(filepath.Join(corpusPath, file.Name()))
 			if err != nil {
 				t.Error(err)
 			}
-			fuzzer.%s(dat)
+			fuzzer.{{.funcName}}(dat)
 		})
 
 	}
 }
-`
+`))

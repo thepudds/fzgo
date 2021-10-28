@@ -75,7 +75,8 @@ func CreateRichSigWrapper(function Func, printArgs bool) (t Target, err error) {
 		}
 	}()
 
-	wrapperDir := filepath.Join(tempDir, "gopath", "src", "richsigwrapper")
+	// to support modules, the first element of our import path must include a '.'.
+	wrapperDir := filepath.Join(tempDir, "gopath", "src", "fzgo.tmp", "richsigwrapper")
 	if err := os.MkdirAll(wrapperDir, 0700); err != nil {
 		return report(fmt.Errorf("failed to create gopath/src in temp dir: %v", err))
 	}
@@ -118,14 +119,10 @@ func CreateRichSigWrapper(function Func, printArgs bool) (t Target, err error) {
 	// (If env contains duplicate environment keys for GOPATH, only the last value is used).
 	env := append(os.Environ(), "GOPATH="+gp)
 
-	// TODO: ##################################################################################
-	// TODO: ###########  resume finishing up here, also fuzz.Instrument, fuzz.Start ##########
-	// TODO: ##################################################################################
-
 	// Re-use our fuzz.FindFunc to find the newly created wrapper.
 	// Note: pkg patterns like 'fzgo/...' and 'fzgo/richsigwrapper' don't seem to work, but '.' does.
 	// (We cd'ed above to the working directory. Maybe a go/packages bug, not liking >1 GOPATH entry?)
-	functions, err := FindFunc(".", "FuzzRichSigWrapper", env, false)
+	functions, err := FindFunc("fzgo.tmp/richsigwrapper", "FuzzRichSigWrapper", env, false)
 	if err != nil || len(functions) == 0 {
 		return report(fmt.Errorf("failed to find wrapper func in temp gopath: %v", err))
 	}
@@ -179,37 +176,140 @@ func fuzzOne (fuzzer *randparam.Fuzzer) {
 	// fuzzer.Fuzz recursively fills all of obj's fields with something random.
 	// Only exported (public) fields can be set currently. (That is how google/go-fuzz operates).
 `)
-	// iterate over the parameters, emitting the wrapper function as we go.
-	// loosely modeled after PrintHugeParams in https://github.com/golang/example/blob/master/gotypes/hugeparam/main.go#L24
-	tuple := sig.Params()
-	for i := 0; i < tuple.Len(); i++ {
-		v := tuple.At(i)
-		// want:
-		//		var foo string
-		//		fuzzer.Fuzz(&foo)
 
-		typeStringWithSelector := types.TypeString(v.Type(), externalQualifier)
-		fmt.Fprintf(w, "\tvar %s %s\n", v.Name(), typeStringWithSelector)
-		fmt.Fprintf(w, "\tfuzzer.Fuzz(&%s)\n", v.Name())
-		if printArgs {
-			fmt.Fprintf(w, "\tfmt.Printf(\"               arg %d:     %%#v\\n\", %s)\n",
-				i+1, v.Name())
-		}
-		fmt.Fprintf(w, "\n")
-	}
+	// emit declaring and filling the arguments we will
+	// pass into the wrapped function.
+	fillVars(w, sig, printArgs)
 
 	// emit the call to the wrapped function
 	fmt.Fprintf(w, "\t%s.%s(", f.Pkg().Name(), f.Name()) // was target.%s with f.Name()
 
 	// emit the arguments to the wrapped function
 	var names []string
-	for i := 0; i < tuple.Len(); i++ {
-		v := tuple.At(i)
+	for i := 0; i < sig.Params().Len(); i++ {
+		v := sig.Params().At(i)
 		names = append(names, v.Name())
 	}
 	fmt.Fprintf(w, "%s)\n\n}\n", strings.Join(names, ", "))
 
 	return nil
+}
+
+// InterfaceImpl contains the interfaces we can fuzz
+// mapped to the implementation approach.
+// Anything added here should be added to FuzzInterfaceFullList test in fuzz_rich_signatures.txt.
+// Rough counts of most common interfaces in public funcs/methods For stdlib
+// (based on output from early version of fzgo that skipped all interfaces):
+// $ grep -r 'skipping' | awk '{print $10}'  | grep -v 'func' | sort | uniq -c | sort -rn | head -20
+// 		146 io.Writer
+// 		122 io.Reader
+// 		 75 reflect.Type
+// 		 64 go/types.Type
+// 		 55 interface{}
+// 		 44 context.Context
+// 		 41 []interface{}
+// 		 22 go/constant.Value
+// 		 17 net.Conn
+// 		 17 math/rand.Source
+// 		 16 net/http.ResponseWriter
+// 		 16 net/http.Handler
+// 		 16 image/color.Color
+// 		 13 io.ReadWriteCloser
+// 		 13 error
+// 		 12 image/color.Palette
+// 		 11 io.ReaderAt
+// 		  9 crypto/cipher.Block
+// 		  8 net.Listener
+// 		  6 go/ast.Node
+var InterfaceImpl = map[string]string{
+	"io.Writer": "ioutil.Discard",
+
+	"io.Reader":      "bytes.Reader",
+	"io.ReaderAt":    "bytes.Reader",
+	"io.WriterTo":    "bytes.Reader",
+	"io.Seeker":      "bytes.Reader",
+	"io.ByteScanner": "bytes.Reader",
+	"io.RuneScanner": "bytes.Reader",
+	"io.ReadSeeker":  "bytes.Reader",
+	"io.ByteReader":  "bytes.Reader",
+	"io.RuneReader":  "bytes.Reader",
+
+	"io.ByteWriter":   "bytes.Buffer",
+	"io.ReadWriter":   "bytes.Buffer", // TODO: consider a bytes.Reader + ioutil.Discard?
+	"io.ReaderFrom":   "bytes.Buffer",
+	"io.StringWriter": "bytes.Buffer",
+
+	// TODO: debatable if we should support Closer at all,
+	// vs. make something that panics if used after a Close (but that is not always desirable),
+	// vs. using NopCloser. To start simply, we'll use NoopCloser for now.
+	// Not yet supported include: io.ReadWriteCloser, io.WriteCloser
+	"io.Closer":     "ioutil.NopCloser",
+	"io.ReadCloser": "ioutil.NopCloser",
+
+	"context.Context": "context.Background",
+}
+
+// fillVars declares and populates each variable for the function under test.
+// It iterates over the parameters, emitting the wrapper function as it goes.
+func fillVars(w io.Writer, sig *types.Signature, printArgs bool) {
+	// first version was loosely modeled after PrintHugeParams in https://github.com/golang/example/blob/master/gotypes/hugeparam/main.go#L24
+	for i := 0; i < sig.Params().Len(); i++ {
+		v := sig.Params().At(i)
+		// example:
+		//		var foo string
+		typeStringWithSelector := types.TypeString(v.Type(), externalQualifier)
+		fmt.Fprintf(w, "\tvar %s %s\n", v.Name(), typeStringWithSelector)
+
+		// Set the value based on whether this is an interface
+		// for which we do something special. If we don't find
+		// anything in our InterfaceImpl, default to attempting to
+		// fill the variable directly.
+		switch InterfaceImpl[typeStringWithSelector] {
+		case "ioutil.Discard":
+			// example:
+			//    w = ioutil.Discard
+			fmt.Fprintf(w, "\t%s = ioutil.Discard\n", v.Name())
+		case "bytes.Reader":
+			// example:
+			//   var __fzgoTmp1 []byte
+			//   fuzzer.Fuzz(&__fzgoTmp1)
+			//   r = bytes.NewReader(__fzgoTemp1)
+			fmt.Fprintf(w, "\tvar __fzgoTmp%d []byte\n", i+1)
+			fmt.Fprintf(w, "\tfuzzer.Fuzz(&__fzgoTmp%d)\n", i+1)
+			fmt.Fprintf(w, "\t%s = bytes.NewReader(__fzgoTmp%d)\n", v.Name(), i+1)
+		case "bytes.Buffer":
+			// example:
+			//   var __fzgoTmp1 []byte
+			//   fuzzer.Fuzz(&__fzgoTmp1)
+			//   foo = bytes.NewBuffer(__fzgoTemp1)
+			fmt.Fprintf(w, "\tvar __fzgoTmp%d []byte\n", i+1)
+			fmt.Fprintf(w, "\tfuzzer.Fuzz(&__fzgoTmp%d)\n", i+1)
+			fmt.Fprintf(w, "\t%s = bytes.NewBuffer(__fzgoTmp%d)\n", v.Name(), i+1)
+		case "ioutil.NopCloser":
+			// example:
+			//   var __fzgoTmp1 []byte
+			//   fuzzer.Fuzz(&__fzgoTmp1)
+			//   r = ioutil.NopCloser(bytes.NewReader(__fzgoTemp1))
+			fmt.Fprintf(w, "\tvar __fzgoTmp%d []byte\n", i+1)
+			fmt.Fprintf(w, "\tfuzzer.Fuzz(&__fzgoTmp%d)\n", i+1)
+			fmt.Fprintf(w, "\t%s = ioutil.NopCloser(bytes.NewReader(__fzgoTmp%d))\n", v.Name(), i+1)
+		case "context.Context":
+			// example:
+			//    ctx = context.Background()
+			fmt.Fprintf(w, "\t%s = context.Background()\n", v.Name())
+		default:
+			// Use the type directly.
+			// example:
+			//		fuzzer.Fuzz(&foo)
+			fmt.Fprintf(w, "\tfuzzer.Fuzz(&%s)\n", v.Name())
+		}
+
+		if printArgs {
+			fmt.Fprintf(w, "\tfmt.Printf(\"        %20s:  %%#v\\n\", %s)\n",
+				v.Name(), v.Name())
+		}
+		fmt.Fprintf(w, "\n")
+	}
 }
 
 // externalQualifier can be used as types.Qualifier in calls to types.TypeString and similar.

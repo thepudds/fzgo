@@ -34,6 +34,14 @@ stdout 'building instrumented binary for pkgname.FuzzHardToGuessNumber'
 stderr 'workers: \d+, corpus: .* crashers: [^0]'
 exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzHardToGuessNumber/corpus
 
+# Verify we can get it to print the discovered value by asking to run 
+# the crashers directly (without additional fuzzing) with verbose mode.
+# It exits with an error code given this is akin to 'go test' seeing a panic.
+! fzgo test -v -run=TestCrashers -fuzz=FuzzHardToGuessNumber example.com/richsignatures
+stdout 'guessMe: .* 0x123456789'
+stdout 'panic: bingo'
+! stderr 'workers: \d+, corpus: .*'
+
 # Check we can get a crasher relatively quickly by finding a long string via a rich signature, which
 # is harder than the uint64 test. This relies on fzgo's approach
 # to deserializing working well with go-fuzz sonar's approach for variable length strings.
@@ -89,6 +97,18 @@ fzgo test -fuzz=FuzzWithStdlibType example.com/richsignatures -parallel=1 -fuzzt
 stdout 'building instrumented binary for pkgname.FuzzWithStdlibType'
 stderr 'workers: \d+, corpus: '
 exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzWithStdlibType/corpus
+
+# Check rich signature that uses supported interfaces (io.Reader, io.Writer)
+fzgo test -fuzz=FuzzInterfacesShortList example.com/richsignatures -parallel=1 -fuzztime=5s
+stdout 'building instrumented binary for pkgname.FuzzInterfacesShortList'
+stderr 'workers: \d+, corpus: '
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzInterfacesShortList/corpus
+
+# Check rich signature that uses full list of supported interfaces
+fzgo test -fuzz=FuzzInterfacesFullList example.com/richsignatures -parallel=1 -fuzztime=5s
+stdout 'building instrumented binary for pkgname.FuzzInterfacesFullList'
+stderr 'workers: \d+, corpus: '
+exists $WORK/gopath/pkg/fuzz/corpus/example.com/richsignatures/FuzzInterfacesFullList/corpus
 
 # Verify we can use -run flag to select a specific file from the corpus for a rich signature.
 # We will guess that we have a zero length file. (Probably it will consistently be there, but we'll see).
@@ -164,7 +184,7 @@ func FuzzAlmostPlain(data []byte) string {
 
 // FuzzHardToGuessNumber is a sanity check that go-fuzz literal injection seems to be working end-to-end.
 // This is typically found within a few seconds when properly hooked up.
-func FuzzHardToGuessNumber(guessMe int64) {
+func FuzzHardToGuessNumber(guessMe uint64) {
 
 	if guessMe == 0x123456789 {
 		panic("bingo")
@@ -190,3 +210,40 @@ func FuzzHardToGuessStringInSlice(list []string) {
 		panic("bingo")
 	}
 }
+
+-- gopath/src/example.com/richsignatures/interface.go --
+package pkgname
+
+import (
+	"context"
+	"io"
+)
+
+// This checks each of the major approaches for interfaces in the fuzz.InterfaceImpl map
+// as implemented in fuzz.fillVars in richsig.go.
+func FuzzInterfacesShortList(ctx context.Context, w io.Writer, r io.Reader, sw io.StringWriter, rc io.ReadCloser) {
+	ctx.Err()
+	io.Copy(w, r)
+	sw.WriteString("hello")
+	rc.Close()
+}
+
+// This is the full list from fuzz.InterfaceImpl.
+func FuzzInterfacesFullList(
+	x1 io.Writer,
+	x2 io.Reader,
+	x3 io.ReaderAt,
+	x4 io.WriterTo,
+	x5 io.Seeker,
+	x6 io.ByteScanner,
+	x7 io.RuneScanner,
+	x8 io.ReadSeeker,
+	x9 io.ByteReader,
+	x10 io.RuneReader,
+	x11 io.ByteWriter,
+	x12 io.ReadWriter,
+	x13 io.ReaderFrom,
+	x14 io.StringWriter,
+	x15 io.Closer,
+	x16 io.ReadCloser,
+	x17 context.Context) {}
