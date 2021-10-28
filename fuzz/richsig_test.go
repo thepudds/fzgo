@@ -184,15 +184,15 @@ func fuzzOne (fuzzer *randparam.Fuzzer) {
 	// Only exported (public) fields can be set currently. (That is how google/go-fuzz operates).
 	var re string
 	fuzzer.Fuzz(&re)
-	fmt.Printf("               arg 1:     %#v\n", re)
+	fmt.Printf("                          re:  %#v\n", re)
 
 	var input []byte
 	fuzzer.Fuzz(&input)
-	fmt.Printf("               arg 2:     %#v\n", input)
+	fmt.Printf("                       input:  %#v\n", input)
 
 	var posix bool
 	fuzzer.Fuzz(&posix)
-	fmt.Printf("               arg 3:     %#v\n", posix)
+	fmt.Printf("                       posix:  %#v\n", posix)
 
 	pkgname.FuzzWithBasicTypes(re, input, posix)
 
