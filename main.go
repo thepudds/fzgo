@@ -106,18 +106,19 @@ func fzgoMain() int {
 		return ArgErr
 	}
 
-	if flagFuzzFunc == "" ||
-		flagFuzzFunc != "" && flagRun != "" {
-		// 'fzgo test', but no '-fuzz', or 'fzgo test -fuzz=foo -run=bar'
-		// Either way, we have not been asked to generate new fuzz-based inputs,
+	if flagFuzzFunc == "" {
+		// 'fzgo test' without '-fuzz'
+		// We have not been asked to generate new fuzz-based inputs,
 		// but will instead:
 		//   1. we deterministically validate our corpus.
-		//      it might be a subset or a single file if have something like -run=Corpus/01FFABCD
-		status := verifyCorpus(os.Args, flagRun, flagVerbose)
+		//      it might be a subset or a single file if have something like -run=Corpus/01FFABCD.
+		//      we don't try any crashers given those are expected to fail (prior to a fix, of course).
+		status := verifyCorpus(os.Args,
+			verifyCorpusOptions{run: flagRun, tryCrashers: false, verbose: flagVerbose})
 		if status != Success {
 			return status
 		}
-		// if -fuzz is not set, we also:
+		// Because -fuzz is not set, we also:
 		//   2. pass our arguments through to the normal 'go' command, which will run normal 'go test'.
 		if flagFuzzFunc == "" {
 			err = fuzz.ExecGo(os.Args[1:], nil)
@@ -126,6 +127,14 @@ func fzgoMain() int {
 			}
 		}
 		return Success
+	} else if flagFuzzFunc != "" && flagRun != "" {
+		//'fzgo test -fuzz=foo -run=bar'
+		// The -run means we have not been asked to generate new fuzz-based inputs,
+		// but instead will run our corpus, and possibly any crashers if
+		// -run matches (e.g., -run=TestCrashers or -run=TestCrashers/02ABCDEF).
+		// Crashers will only be executed if the -run argument matches.
+		return verifyCorpus(os.Args,
+			verifyCorpusOptions{run: flagRun, tryCrashers: true, verbose: flagVerbose})
 	}
 
 	// we now know we have been asked to do fuzzing.
@@ -225,10 +234,16 @@ func fzgoMain() int {
 	return Success
 }
 
+type verifyCorpusOptions struct {
+	run         string
+	tryCrashers bool
+	verbose     bool
+}
+
 // verifyCorpus validates our corpus by executing any fuzz functions in our package pattern
 // against any files in the corresponding corpus. This is an automatic form of regression test.
-// args is os.Args
-func verifyCorpus(args []string, run string, verbose bool) int {
+// args is os.Args.
+func verifyCorpus(args []string, opt verifyCorpusOptions) int {
 	// we do this by first searching for any fuzz func ("." regexp) in our package pattern.
 	// TODO: move this elsewhere? Taken from fuzz.ParseArgs, but we can't use fuzz.ParseArgs as is.
 	// formerly, we used to also obtain nonPkgArgs here and pass them through, but now we effectively
@@ -289,7 +304,7 @@ func verifyCorpus(args []string, run string, verbose bool) int {
 			}
 			foundWorkDir = true
 
-			err := fuzz.VerifyCorpus(function, workDir, run, verbose)
+			err := fuzz.VerifyCorpus(function, workDir, opt.run, opt.verbose)
 			if err == fuzz.ErrGoTestFailed {
 				// 'go test' itself should have printed an informative error,
 				// so here we just set a non-zero status code and continue.
@@ -298,11 +313,24 @@ func verifyCorpus(args []string, run string, verbose bool) int {
 				fmt.Println("fzgo:", err)
 				return OtherErr
 			}
+			if opt.tryCrashers {
+				// This might not end up matching anything based on the -run=foo regexp,
+				// but we try it anyway and let cmd/go skip executing the test if it doesn't match.
+				err = fuzz.VerifyCrashers(function, workDir, opt.run, opt.verbose)
+				if err == fuzz.ErrGoTestFailed {
+					// Similar to above, 'go test' itself should have printed an informative error.
+					status = OtherErr
+				} else if err != nil {
+					fmt.Println("fzgo:", err)
+					return OtherErr
+				}
+			}
 		}
 		if !foundWorkDir {
-			fmt.Println("fzgo: did not find any corpus location for", function.FuzzName())
+			// TODO: consider emitting a warning? Or too noisy?
+			// Would be too noisy for cmd/go, but consider for now?
+			// fmt.Println("fzgo: did not find any corpus location for", function.FuzzName())
 		}
-
 	}
 
 	return status
