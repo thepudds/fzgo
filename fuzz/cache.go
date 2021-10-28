@@ -152,6 +152,10 @@ func hashFiles(files []string, trimPrefix string) (string, error) {
 
 // goListDeps returns a []string of dirs for all dependencies of pkg
 func goListDeps(pkg string, env []string) ([]string, error) {
+	report := func(err error) ([]string, error) {
+		return nil, fmt.Errorf("go list -deps: %v", err)
+	}
+
 	if len(env) == 0 {
 		env = os.Environ()
 	}
@@ -161,7 +165,11 @@ func goListDeps(pkg string, env []string) ([]string, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			return report(err)
+		}
+		return nil, fmt.Errorf("go list -deps: %v: %s", err, ee.Stderr)
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	results := []string{}
@@ -169,7 +177,7 @@ func goListDeps(pkg string, env []string) ([]string, error) {
 		results = append(results, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return report(err)
 	}
 	return results, nil
 }
